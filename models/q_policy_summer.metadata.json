@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "model_version": "q-learning-synthetic-v1",
+  "trained_at": "2026-09-08T11:10:20.490392+00:00",
+  "random_seed": 42,
+  "mode": "여름",
+  "start_node": "city_hall",
+  "target_node": "gwanghwamun",
+  "graph_fingerprint": "b1cc6f85f7d16927cb76dc633b3f3415561730b61d4f2b6025514e7d2aac6dab",
+  "training_config": {
+    "episodes": 4000,
+    "learning_rate": 0.18,
+    "discount_factor": 0.95,
+    "epsilon_start": 1.0,
+    "epsilon_end": 0.03,
+    "max_steps": 40,
+    "random_seed": 42,
+    "max_detour_ratio": 0.25
+  },
+  "evaluation_before": {
+    "average_reward": -8.188121126923527,
+    "destination_reach_rate": 0.3,
+    "average_detour_ratio": 0.06049689399384707,
+    "average_mode_score": 30.083333333333332
+  },
+  "evaluation_after": {
+    "average_reward": 89.28135498581042,
+    "destination_reach_rate": 1.0,
+    "average_detour_ratio": 0.0,
+    "average_mode_score": 0.0
+  },
+  "state_count": 4
+}

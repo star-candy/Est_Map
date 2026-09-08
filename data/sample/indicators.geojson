@@ -1,0 +1,32 @@
+{
+  "type": "FeatureCollection",
+  "name": "synthetic_comfort_indicators",
+  "crs": {"type": "name", "properties": {"name": "EPSG:4326"}},
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {"type": "LineString", "coordinates": [[126.9779, 37.5663], [126.9810, 37.5690], [126.9800, 37.5725], [126.9768, 37.5759]]},
+      "properties": {"id": "shade-01", "category": "shade", "label": "합성 수관·그늘 proxy", "is_sample": true, "influence_m": 90, "edge_ids": ["city-alley1", "alley1-alley2", "alley2-gwanghwamun"], "scores": {"shade_score": 0.95}}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [126.9773, 37.5712]},
+      "properties": {"id": "ginkgo-01", "category": "ginkgo", "label": "합성 은행나무 위험 지점", "is_sample": true, "influence_m": 180, "edge_ids": ["city-gwanghwamun"], "scores": {"ginkgo_risk": 0.95}}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "LineString", "coordinates": [[126.9779, 37.5663], [126.9768, 37.5759]]},
+      "properties": {"id": "heating-01", "category": "heating", "label": "합성 도로 열선 구간", "is_sample": true, "influence_m": 75, "edge_ids": ["city-gwanghwamun"], "scores": {"heating_score": 0.9}}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "LineString", "coordinates": [[126.9810, 37.5690], [126.9800, 37.5725]]},
+      "properties": {"id": "icing-01", "category": "icing", "label": "합성 결빙 위험 구간", "is_sample": true, "influence_m": 70, "edge_ids": ["alley1-alley2"], "scores": {"icing_risk": 0.85}}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "LineString", "coordinates": [[126.9779, 37.5663], [126.9810, 37.5690], [126.9800, 37.5725], [126.9768, 37.5759]]},
+      "properties": {"id": "light-01", "category": "safety", "label": "합성 가로등·야간 안전 proxy", "is_sample": true, "influence_m": 90, "edge_ids": ["city-alley1", "alley1-alley2", "alley2-gwanghwamun"], "scores": {"light_score": 0.95, "safety_score": 0.9}}
+    }
+  ]
+}

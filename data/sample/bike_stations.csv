@@ -1,0 +1,6 @@
+station_id,name,latitude,longitude,available_bikes,available_docks,is_sample
+S101,합성 서울역 대여소,37.5550,126.9711,7,4,true
+S102,합성 시청 대여소,37.5660,126.9784,5,6,true
+S103,합성 광화문 대여소,37.5756,126.9774,3,8,true
+S104,합성 종로 대여소,37.5701,126.9914,6,5,true
+S105,합성 동대문 대여소,37.5668,127.0084,4,7,true

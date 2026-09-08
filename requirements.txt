@@ -1,0 +1,10 @@
+streamlit>=1.40,<2
+folium>=0.18,<1
+streamlit-folium>=0.24,<1
+python-dotenv>=1.0,<2
+networkx>=3.4,<4
+osmnx>=2.0,<3
+pytest>=8.3,<10
+joblib>=1.4,<2
+requests>=2.32,<3
+ruff>=0.9,<1
