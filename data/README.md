@@ -42,6 +42,18 @@
 좌표가 없어 설치구간 앞부분의 도로명만 정규화한다. 지도에 임의 설치점을 만들지 않고,
 보행 edge의 OSM 도로명이 일치할 때만 `heating_score=1`을 적용한다.
 
+## 오프라인 OpenStreetMap 보행망
+
+- 원본: `south-korea-260907.osm.pbf`, OpenStreetMap 2026-09-07 추출본
+- 라이선스: Open Database License(ODbL), OpenStreetMap contributors 표시 필요
+- 전처리: `python -m scripts.prepare_osm_network`
+- 산출물: `data/processed/seoul_walk.sqlite3.gz`
+- 범위·규모: 서울 bbox 내 보행 가능한 highway, 1,151,744노드·1,290,380선분
+- 런타임: 최초 실행 때 Git에서 제외된 `cache/seoul_walk.sqlite3`로 자동 해제한 뒤
+  출도착 bbox만 RTree로 조회한다. 원본 PBF나 Downloads 폴더는 실행 시 필요하지 않다.
+- 제외: motorway/trunk/construction/proposed/raceway 및 `foot=no`, `access=no/private`
+  명시 구간. PBF의 도로 geometry를 구성하는 연속 좌표 사이 실제 선분 길이를 사용한다.
+
 ## 공통 조건
 
 - 서울 열린데이터광장 Open API는 발급 키를 URL 경로에 넣고 요청당 최대 1,000건을

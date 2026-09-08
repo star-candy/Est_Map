@@ -13,6 +13,9 @@ from typing import Any
 
 import joblib
 import networkx as nx
+from pyproj import Transformer
+from shapely.geometry import LineString, Point
+from shapely.ops import transform
 
 from src.domain import Coordinates, RouteMode
 from src.indicators.scoring import edge_comfort, path_comfort_score
@@ -35,6 +38,7 @@ class TrainingConfig:
     max_steps: int = 40
     random_seed: int = DEFAULT_RANDOM_SEED
     max_detour_ratio: float = 0.25
+    evaluation_episodes: int = 200
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,9 +146,21 @@ class QLearningEnvironment:
         next_node = lookup[action]
         edge = self._edge(self.current, next_node)
         length = float(edge["length"])
-        reward = -(length / 100.0) + 2.0 * edge_comfort(edge, self.mode)
+        before = Coordinates(
+            self.graph.nodes[self.current]["y"], self.graph.nodes[self.current]["x"]
+        )
+        after = Coordinates(self.graph.nodes[next_node]["y"], self.graph.nodes[next_node]["x"])
+        target_point = Coordinates(
+            self.graph.nodes[self.target]["y"], self.graph.nodes[self.target]["x"]
+        )
+        progress_m = haversine_m(before, target_point) - haversine_m(after, target_point)
+        reward = (
+            -(length / 100.0)
+            + 2.0 * edge_comfort(edge, self.mode)
+            + progress_m / 20.0
+        )
         if next_node in self.visited:
-            reward -= 4.0
+            reward -= 15.0
         self.distance_travelled += length
         self.current = next_node
         self.path.append(next_node)
@@ -238,17 +254,25 @@ def evaluate_policy(
 
 def train_q_learning(environment: QLearningEnvironment) -> tuple[QTable, dict[str, Any]]:
     config = environment.config
-    before = evaluate_policy(environment, None, 200, config.random_seed + 1)
+    before = evaluate_policy(
+        environment, None, config.evaluation_episodes, config.random_seed + 1
+    )
     q_table: QTable = {}
     rng = random.Random(config.random_seed)
     for episode in range(config.episodes):
         progress = episode / max(config.episodes - 1, 1)
         epsilon = config.epsilon_start + progress * (config.epsilon_end - config.epsilon_start)
         run_episode(environment, q_table, rng, epsilon, learn=True)
-    after = evaluate_policy(environment, q_table, 200, config.random_seed + 2)
+    after = evaluate_policy(
+        environment, q_table, config.evaluation_episodes, config.random_seed + 2
+    )
     metadata = {
         "schema_version": MODEL_SCHEMA_VERSION,
-        "model_version": "q-learning-synthetic-v1",
+        "model_version": (
+            "q-learning-osm-runtime-v1"
+            if "OSM" in str(environment.graph.graph.get("source", ""))
+            else "q-learning-v1"
+        ),
         "trained_at": datetime.now(UTC).isoformat(),
         "random_seed": config.random_seed,
         "mode": environment.mode.value,
@@ -279,6 +303,70 @@ def load_policy(model_path: Path) -> tuple[QTable, dict[str, Any]]:
     return payload["q_table"], payload["metadata"]
 
 
+_TO_METERS = Transformer.from_crs("EPSG:4326", "EPSG:5179", always_xy=True)
+
+
+def build_route_corridor_graph(
+    graph: nx.MultiDiGraph,
+    baseline_path: list[Hashable],
+    buffer_m: float = 200.0,
+) -> nx.MultiDiGraph:
+    """기준 경로 주변만 남겨 실제 구간의 tabular 학습 규모를 제한한다."""
+    route = LineString(
+        [(graph.nodes[node]["x"], graph.nodes[node]["y"]) for node in baseline_path]
+    )
+    corridor = transform(_TO_METERS.transform, route).buffer(buffer_m)
+    selected = set(baseline_path)
+    for node, data in graph.nodes(data=True):
+        point = transform(_TO_METERS.transform, Point(data["x"], data["y"]))
+        if corridor.contains(point):
+            selected.add(node)
+    result = graph.subgraph(selected).copy()
+    result.graph.update(graph.graph)
+    return result
+
+
+def train_or_load_runtime_policy(
+    graph: nx.MultiDiGraph,
+    baseline_path: list[Hashable],
+    start: Hashable,
+    target: Hashable,
+    mode: RouteMode,
+    baseline_distance: float,
+    model_directory: Path,
+) -> tuple[InferenceResult, dict[str, Any]]:
+    """실제 경로 corridor의 Q-table을 재사용하거나 재현 가능하게 학습한다."""
+    corridor = build_route_corridor_graph(graph, baseline_path)
+    fingerprint = graph_fingerprint(corridor)
+    model_path = model_directory / f"{fingerprint[:20]}-{mode.name.lower()}-v2.joblib"
+    if model_path.is_file():
+        q_table, metadata = load_policy(model_path)
+    else:
+        config = TrainingConfig(
+            episodes=1_500,
+            max_steps=max(80, min(600, len(baseline_path) * 3)),
+            random_seed=DEFAULT_RANDOM_SEED,
+            evaluation_episodes=30,
+        )
+        environment = QLearningEnvironment(
+            corridor, start, target, mode, baseline_distance, config
+        )
+        q_table, metadata = train_q_learning(environment)
+        save_policy(q_table, metadata, model_path)
+    return (
+        infer_policy(
+            corridor,
+            start,
+            target,
+            mode,
+            q_table,
+            metadata,
+            baseline_distance,
+        ),
+        metadata,
+    )
+
+
 def infer_policy(
     graph: nx.MultiDiGraph,
     start: Hashable,
@@ -304,7 +392,19 @@ def infer_policy(
         learned = q_table.get(state)
         if not actions or not learned or not any(action in learned for action in actions):
             return InferenceResult(None, "미학습 상태를 만나 정책 추론을 중단했습니다.")
-        action = min(actions, key=lambda item: (-learned.get(item, float("-inf")), item))
+        unvisited_actions = [
+            action
+            for action in actions
+            if {str(node): node for node in environment.graph.successors(environment.current)}[
+                action
+            ]
+            not in visited
+        ]
+        policy_actions = unvisited_actions or actions
+        action = min(
+            policy_actions,
+            key=lambda item: (-learned.get(item, float("-inf")), item),
+        )
         next_state, _, done, reached = environment.step(action)
         if environment.current in visited and not reached:
             return InferenceResult(None, "RL 정책에서 반복 루프가 감지됐습니다.")

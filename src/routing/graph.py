@@ -1,7 +1,11 @@
 """샘플 및 OpenStreetMap 보행 그래프 로딩."""
 
+import gzip
+import shutil
+import sqlite3
 from functools import lru_cache
 from math import asin, cos, radians, sin, sqrt
+from pathlib import Path
 
 import networkx as nx
 
@@ -104,3 +108,71 @@ def load_osm_walking_graph(
     east = round(max(origin.longitude, destination.longitude) + margin_degrees, 4)
     west = round(min(origin.longitude, destination.longitude) - margin_degrees, 4)
     return _cached_osm_graph(west, south, east, north)
+
+
+@lru_cache(maxsize=1)
+def _offline_database_path() -> Path:
+    project_root = Path(__file__).resolve().parents[2]
+    archive = project_root / SETTINGS.offline_osm_archive_path
+    cache_path = project_root / SETTINGS.offline_osm_cache_path
+    if not archive.is_file():
+        raise FileNotFoundError("오프라인 서울 보행망 압축 파일이 없습니다.")
+    if not cache_path.is_file() or cache_path.stat().st_mtime < archive.stat().st_mtime:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = cache_path.with_suffix(".tmp")
+        with gzip.open(archive, "rb") as source, temporary.open("wb") as target:
+            shutil.copyfileobj(source, target, length=1024 * 1024)
+        temporary.replace(cache_path)
+    return cache_path
+
+
+@lru_cache(maxsize=8)
+def _load_offline_bbox(
+    west: float, south: float, east: float, north: float
+) -> nx.MultiDiGraph:
+    graph = nx.MultiDiGraph(crs="EPSG:4326", source="OSM-PBF-offline")
+    query = """
+        SELECT e.edge_id, e.u, e.v, e.length_m, e.name, e.highway,
+               u.latitude, u.longitude, v.latitude, v.longitude
+        FROM edge_bounds b
+        JOIN edges e ON e.edge_id = b.edge_id
+        JOIN nodes u ON u.node_id = e.u
+        JOIN nodes v ON v.node_id = e.v
+        WHERE b.max_lon >= ? AND b.min_lon <= ?
+          AND b.max_lat >= ? AND b.min_lat <= ?
+    """
+    with sqlite3.connect(f"file:{_offline_database_path()}?mode=ro", uri=True) as connection:
+        rows = connection.execute(query, (west, east, south, north))
+        for edge_id, u, v, length, name, highway, u_lat, u_lon, v_lat, v_lon in rows:
+            graph.add_node(u, y=u_lat, x=u_lon)
+            graph.add_node(v, y=v_lat, x=v_lon)
+            attributes = {
+                "length": float(length),
+                "name": name or "",
+                "highway": highway or "",
+                "osm_edge_id": edge_id,
+            }
+            graph.add_edge(u, v, **attributes)
+            graph.add_edge(v, u, **attributes)
+    return graph
+
+
+def load_offline_walking_graph(
+    origin: Coordinates, destination: Coordinates
+) -> nx.MultiDiGraph:
+    """압축 배포된 서울 OSM PBF 인덱스에서 연결된 보행 부분 그래프를 읽는다."""
+    from src.routing.baseline import nearest_node
+
+    for margin in (0.006, 0.012, 0.025):
+        north = round(max(origin.latitude, destination.latitude) + margin, 4)
+        south = round(min(origin.latitude, destination.latitude) - margin, 4)
+        east = round(max(origin.longitude, destination.longitude) + margin, 4)
+        west = round(min(origin.longitude, destination.longitude) - margin, 4)
+        graph = _load_offline_bbox(west, south, east, north)
+        if not graph:
+            continue
+        start = nearest_node(graph, origin)
+        target = nearest_node(graph, destination)
+        if nx.has_path(graph, start, target):
+            return graph
+    raise nx.NetworkXNoPath("오프라인 보행망에서 연결된 경로를 찾지 못했습니다.")

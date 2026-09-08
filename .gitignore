@@ -6,4 +6,5 @@ __pycache__/
 .ruff_cache/
 .streamlit/secrets.toml
 cache/
+models/runtime/
 data/local/

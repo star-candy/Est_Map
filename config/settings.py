@@ -19,6 +19,8 @@ class Settings:
     map_height: int = 480
     external_request_timeout_seconds: int = 20
     rl_model_path: str = "models/q_policy_summer.joblib"
+    offline_osm_archive_path: str = "data/processed/seoul_walk.sqlite3.gz"
+    offline_osm_cache_path: str = "cache/seoul_walk.sqlite3"
     bike_distance_threshold_m: float = 1_200.0
     bike_time_threshold_min: float = 15.0
     bike_station_search_radius_m: float = 700.0

@@ -64,11 +64,14 @@ Nominatim과 Overpass 연결을 시도하며, 실패하면 화면에 이유를 �
 
 ```powershell
 python -m scripts.prepare_real_data
+python -m scripts.prepare_osm_network
 ```
 
 다른 위치라면 `--source-dir`을 지정합니다. `data/processed/*.csv.gz`에는 가로수
 287,635건, 은행나무 암나무 15,316건, 그늘막 4,941건, 가로등 19,316건, 열선
 993건, 정적 따릉이 대여소 2,789건이 저장됩니다.
+PBF 전처리는 서울 보행망을 `data/processed/seoul_walk.sqlite3.gz`로 저장합니다. 앱 최초
+실행 시 이를 `cache/`에 해제하므로 이후 Downloads 원본은 필요하지 않습니다.
 
 ### 샘플 모드 사용법
 
@@ -165,6 +168,12 @@ OpenStreetMap 보행 그래프를 불러오고, 실패하면 명시적으로 합
 
 기본 모델은 `서울시청 → 광화문`, `여름` 모드의 제한된 합성 부분 그래프에서 seed
 42로 4,000 episode를 학습한 tabular Q-learning Q-table입니다.
+
+실제 로컬 데이터 모드는 출도착 기준 경로 주변 200m corridor만 부분 그래프로 만들고,
+각 모드별로 seed 42의 Q-learning을 1,500 episode 학습합니다. 상태와 행동은 아래와
+같고 진행 거리 기반 reward shaping도 학습 보상에 포함됩니다. 학습 Q-table과 metadata는
+`models/runtime/`에 캐시되어 같은 그래프·구간·모드 검색에서 재사용됩니다. 학습 정책이
+루프, 미도달 또는 25% 초과 우회를 만들면 weighted A*로 fallback합니다.
 
 - 상태: 현재 노드, 목적지까지의 거리 구간, 현재 노드의 모드 지표 구간
 - 행동: 현재 노드에서 연결된 인접 edge의 다음 노드 선택

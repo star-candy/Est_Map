@@ -11,7 +11,7 @@ from src.indicators.real import (
 )
 from src.map_view import create_route_map
 from src.mobility.bike import StaticSeoulBikeStationProvider
-from src.routing.graph import load_sample_walking_graph
+from src.routing.graph import haversine_m, load_offline_walking_graph, load_sample_walking_graph
 from src.services.routing import RoutingService
 
 
@@ -83,3 +83,35 @@ def test_static_bike_data_does_not_invent_inventory() -> None:
     assert len(stations) == 2_789
     assert all(not station.is_sample for station in stations)
     assert all(not station.inventory_known for station in stations)
+
+
+def test_offline_osm_route_follows_real_network() -> None:
+    origin = SAMPLE_PLACES["서울역"]
+    destination = SAMPLE_PLACES["동대문디자인플라자"]
+    graph = load_offline_walking_graph(origin, destination)
+    from src.routing.baseline import shortest_path
+
+    path, distance = shortest_path(graph, origin, destination)
+    assert graph.graph["source"] == "OSM-PBF-offline"
+    assert len(path) > 20
+    assert distance > haversine_m(origin, destination) * 1.05
+
+
+def test_actual_osm_graph_uses_runtime_q_learning(tmp_path) -> None:
+    origin = SAMPLE_PLACES["서울역"]
+    destination = SAMPLE_PLACES["광화문"]
+    comparison = RoutingService(model_path=tmp_path / "base.joblib").find_routes(
+        RouteRequest(
+            "서울역",
+            "광화문",
+            RouteMode.SUMMER,
+            use_osm=True,
+            origin_coordinates=origin,
+            destination_coordinates=destination,
+            use_real_data=True,
+        )
+    )
+    assert comparison.method == "RL 정책"
+    assert comparison.model_version == "q-learning-osm-runtime-v1"
+    assert comparison.fallback_reason is None
+    assert comparison.baseline.distance_m > haversine_m(origin, destination)

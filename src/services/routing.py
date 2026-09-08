@@ -13,10 +13,11 @@ from src.indicators.scoring import attach_sample_indicators, path_comfort_score
 from src.routing.baseline import nearest_node, path_coordinates, shortest_path
 from src.routing.graph import (
     build_fallback_graph,
+    load_offline_walking_graph,
     load_osm_walking_graph,
     load_sample_walking_graph,
 )
-from src.routing.rl_agent import infer_policy, load_policy
+from src.routing.rl_agent import infer_policy, load_policy, train_or_load_runtime_policy
 from src.routing.weighted import (
     DEFAULT_MAX_DETOUR_RATIO,
     enforce_detour_limit,
@@ -103,13 +104,24 @@ class RoutingService:
         source = "합성 보행 그래프와 합성 공간 지표"
         if request.use_osm:
             try:
-                graph = load_osm_walking_graph(origin, destination)
-                source = "OpenStreetMap 보행 그래프와 합성 공간 지표"
-            except Exception:
-                graph = build_fallback_graph(origin, destination)
-                is_sample = True
-                source = "합성 fallback 보행 그래프와 합성 공간 지표"
-                notices.append("보행 네트워크 연결에 실패하여 합성 샘플 경로를 표시합니다.")
+                graph = load_offline_walking_graph(origin, destination)
+                source = "오프라인 OpenStreetMap PBF 보행 그래프와 합성 공간 지표"
+            except Exception as offline_error:
+                try:
+                    graph = load_osm_walking_graph(origin, destination)
+                    source = "온라인 OpenStreetMap 보행 그래프와 합성 공간 지표"
+                    notices.append(
+                        "오프라인 보행망을 사용할 수 없어 온라인 연결을 사용했습니다: "
+                        f"{offline_error}"
+                    )
+                except Exception:
+                    graph = build_fallback_graph(origin, destination)
+                    is_sample = True
+                    source = "합성 fallback 보행 그래프와 합성 공간 지표"
+                    notices.append(
+                        "오프라인·온라인 보행망 연결에 실패하여 "
+                        "합성 샘플 경로를 표시합니다."
+                    )
         else:
             graph = load_sample_walking_graph()
 
@@ -131,19 +143,30 @@ class RoutingService:
         model_version: str | None = None
         method = "RL 정책"
         try:
-            q_table, metadata = load_policy(self.model_path)
-            model_version = str(metadata["model_version"])
             start = nearest_node(graph, origin)
             target = nearest_node(graph, destination)
-            inference = infer_policy(
-                graph,
-                start,
-                target,
-                request.mode,
-                q_table,
-                metadata,
-                baseline_distance,
-            )
+            if request.use_real_data and not is_sample:
+                inference, metadata = train_or_load_runtime_policy(
+                    graph,
+                    baseline_nodes,
+                    start,
+                    target,
+                    request.mode,
+                    baseline_distance,
+                    self.model_path.parent / "runtime",
+                )
+            else:
+                q_table, metadata = load_policy(self.model_path)
+                inference = infer_policy(
+                    graph,
+                    start,
+                    target,
+                    request.mode,
+                    q_table,
+                    metadata,
+                    baseline_distance,
+                )
+            model_version = str(metadata["model_version"])
             candidate_nodes = inference.path
             rl_reason = inference.reason
         except Exception as exc:
