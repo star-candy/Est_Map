@@ -8,6 +8,7 @@ import networkx as nx
 from config.settings import SETTINGS
 from src.domain import Coordinates, RouteComparison, RoutePath, RouteRequest
 from src.geocoding import GeocodingError, OSMGeocoder, SampleGeocoder, validate_seoul
+from src.indicators.real import attach_real_indicators
 from src.indicators.scoring import attach_sample_indicators, path_comfort_score
 from src.routing.baseline import nearest_node, path_coordinates, shortest_path
 from src.routing.graph import (
@@ -107,11 +108,20 @@ class RoutingService:
             except Exception:
                 graph = build_fallback_graph(origin, destination)
                 is_sample = True
+                source = "합성 fallback 보행 그래프와 합성 공간 지표"
                 notices.append("보행 네트워크 연결에 실패하여 합성 샘플 경로를 표시합니다.")
         else:
             graph = load_sample_walking_graph()
 
-        graph = attach_sample_indicators(graph)
+        if request.use_real_data:
+            try:
+                graph = attach_real_indicators(graph)
+                source = source.replace("합성 공간 지표", "서울 공공데이터 공간 지표")
+            except (FileNotFoundError, ValueError) as exc:
+                graph = attach_sample_indicators(graph)
+                notices.append(f"실제 데이터 처리에 실패하여 합성 지표를 사용합니다: {exc}")
+        else:
+            graph = attach_sample_indicators(graph)
         try:
             baseline_nodes, baseline_distance = shortest_path(graph, origin, destination)
         except Exception as exc:
@@ -175,6 +185,7 @@ class RoutingService:
             fallback_reason=" ".join(fallback_reasons) or None,
             notice=" ".join(notices) or None,
             model_version=model_version,
+            indicator_source=str(graph.graph.get("indicator_source", "sample")),
         )
 
 

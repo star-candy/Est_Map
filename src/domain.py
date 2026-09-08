@@ -34,6 +34,7 @@ class RouteRequest:
     use_osm: bool = False
     origin_coordinates: Coordinates | None = None
     destination_coordinates: Coordinates | None = None
+    use_real_data: bool = False
 
     def validate(self) -> tuple[str, ...]:
         errors: list[str] = []
@@ -74,6 +75,7 @@ class RouteComparison:
     fallback_reason: str | None = None
     notice: str | None = None
     model_version: str | None = None
+    indicator_source: str = "sample"
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +86,7 @@ class BikeStation:
     available_bikes: int
     available_docks: int
     is_sample: bool
+    inventory_known: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,3 +101,4 @@ class BikeRecommendation:
     total_distance_m: float = 0.0
     estimated_duration_min: float = 0.0
     is_sample: bool = True
+    inventory_known: bool = True

@@ -3,20 +3,21 @@
 서울 안에서 일반 최단 보행 경로와 계절·안심 지표를 반영한 맞춤 경로를 비교하는
 Streamlit MVP입니다. 합성 부분 그래프에서 실제 episode로 학습한
 tabular Q-learning 정책을 우선 사용하고, 적용할 수 없으면 weighted A*로 전환합니다.
-인터넷 연결 시 OpenStreetMap 보행 그래프도 선택할 수 있지만 쾌적 지표와 학습 모델은
-여전히 합성 데이터 기반입니다.
+실제 로컬 데이터 모드에서는 OpenStreetMap 보행 그래프와 전처리된 서울 공공데이터를
+결합합니다. 저장된 RL 모델은 합성 그래프 전용이므로 실제 그래프에서는 weighted A*로
+안전하게 fallback합니다.
 
-> 현재 화면과 향후 포함될 기본 지표는 샘플 데이터 기반 데모입니다. 특히 안심 및
-> 결빙 관련 정보는 참고용이며 공식 안전 경로가 아닙니다.
+> 안심 및 겨울 지표는 참고용이며 공식 안전 경로가 아닙니다. 첨부 자료에는 결빙 위험과
+> 열선 좌표·실시간 가동 상태가 없어 해당 정보를 임의로 생성하지 않습니다.
 
 ## 화면과 사용자 흐름
 
-1. 첫 화면에서 `샘플 데모` 또는 `실제 OpenStreetMap`을 선택합니다.
+1. 첫 화면에서 `샘플 데모` 또는 `실제 로컬 데이터 + OpenStreetMap`을 선택합니다.
 2. 출발지·도착지와 여름/가을/겨울/안심 모드를 선택하고 `경로 검색`을 누릅니다.
-3. 지도에서 회색 일반 경로, 모드 색상의 맞춤 경로, 선택 모드의 합성 지표 layer를
+3. 지도에서 회색 일반 경로, 모드 색상의 맞춤 경로, 공간 지표 layer를
    함께 확인합니다. LayerControl에서 지표를 켜고 끌 수 있습니다.
 4. 거리, 예상 시간, 쾌적 점수, 우회율, 생성 알고리즘과 fallback 이유를 비교합니다.
-5. 장거리이면 합성 따릉이 대여·반납소와 개략 복합 이동 시간을 확인합니다.
+5. 장거리이면 인근 따릉이 대여·반납 후보와 개략 복합 이동 시간을 확인합니다.
 6. 실제 이동한 경로와 택시 대체 여부를 확인한 뒤 `이동 완료`를 누릅니다.
 7. 로그인 없이 로컬에 누적된 월간 거리·탄소·비용 통계를 확인합니다.
 
@@ -37,7 +38,7 @@ tabular Q-learning 정책을 우선 사용하고, 적용할 수 없으면 weight
 ## 요구 환경
 
 - Python 3.11 또는 3.12 권장
-- 인터넷 연결: OpenStreetMap 배경 타일 표시에만 필요
+- 인터넷 연결: 실제 모드의 Nominatim 지오코딩·Overpass 보행 그래프와 지도 타일에 필요
 - API 키: 샘플 데모에는 필요 없음
 
 ## 설치 및 실행
@@ -53,8 +54,21 @@ streamlit run app.py
 ```
 
 브라우저에서 안내된 로컬 주소를 열고 출발지, 도착지와 모드를 선택합니다. 기본
-`샘플 데모`는 외부 API를 호출하지 않습니다. `실제 OpenStreetMap`은 Nominatim과
-Overpass 연결을 시도하며, 실패하면 화면에 이유를 표시하고 합성 경로로 전환합니다.
+`샘플 데모`는 외부 API를 호출하지 않습니다. `실제 로컬 데이터 + OpenStreetMap`은
+Nominatim과 Overpass 연결을 시도하며, 실패하면 화면에 이유를 표시하고 합성 보행
+그래프로 전환합니다. 이때도 전처리된 실제 공간 지표는 적용합니다.
+
+### 실제 로컬 데이터 준비
+
+첨부 원본 다섯 파일을 Downloads 폴더에 둔 상태에서 실행합니다.
+
+```powershell
+python -m scripts.prepare_real_data
+```
+
+다른 위치라면 `--source-dir`을 지정합니다. `data/processed/*.csv.gz`에는 가로수
+287,635건, 은행나무 암나무 15,316건, 그늘막 4,941건, 가로등 19,316건, 열선
+993건, 정적 따릉이 대여소 2,789건이 저장됩니다.
 
 ### 샘플 모드 사용법
 
@@ -100,7 +114,7 @@ streamlit run app.py --server.headless true
 - `src/routing/`: 합성·OSM 그래프 로딩과 NetworkX 거리 최단 경로
 - `src/routing/weighted.py`: 모드별 edge 비용, weighted A*와 25% 우회 제한
 - `src/routing/rl_agent.py`: Q-learning 환경, 학습, 평가, 저장·로딩 및 추론
-- `src/indicators/`: 합성 GeoJSON 로딩, edge 공간 결합과 쾌적 점수
+- `src/indicators/`: 합성/실제 지표 로딩, edge 공간 결합과 쾌적 점수
 - `src/services/routing.py`: 지오코딩과 그래프 및 fallback을 조율하는 서비스
 - `src/map_view.py`: 두 경로, 모드별 합성 지표 layer와 범례
 - `src/mobility/bike.py`: 대여소 provider와 따릉이 복합 이동 추천
@@ -113,7 +127,8 @@ streamlit run app.py --server.headless true
 - 샘플 보행 그래프와 경로는 시연용 합성 데이터이며 실제 보행로가 아닙니다.
 - 주소와 OSM 그래프 조회는 공용 서비스 상태와 사용 정책의 영향을 받습니다.
 - 지도 경로는 현재 graph node를 연결한 선으로 표시하므로 실제 도로 곡선이 단순화됩니다.
-- 지표 위치와 점수는 모두 알고리즘 시연용 합성 값입니다. 실제 공공데이터가 아닙니다.
+- 샘플 모드 지표는 합성 값입니다. 실제 모드는 첨부 공공데이터를 사용하지만 공간
+  근접도 점수 자체는 MVP용 proxy입니다.
 - 맞춤 경로는 최대 25% 우회만 허용하며 초과 시 일반 경로로 fallback합니다.
 - 쾌적 점수는 선택 모드 지표의 길이 가중 평균으로, 경로 안전성을 보장하지 않습니다.
 - 샘플 그래프는 서울 전역 탐색이 아니며 RL 정책도 고정 구간·여름 모드에만 학습됐습니다.
@@ -121,8 +136,9 @@ streamlit run app.py --server.headless true
 
 ## 데이터 출처와 라이선스
 
-현재 실행되는 공간 지표와 따릉이 자료는 프로젝트가 만든 합성 데이터입니다. 배경 지도와
-선택적 실제 보행 그래프는 OpenStreetMap을 사용하므로 실제 배포에서는 OpenStreetMap
+샘플 모드는 프로젝트 합성 데이터를 사용합니다. 실제 모드는 첨부된 서울시 가로수,
+그늘막, 도로 열선, 가로등, 공공자전거 대여소 파일을 사용합니다. 보행 그래프와 배경
+지도는 OpenStreetMap을 사용하므로 실제 배포에서는 OpenStreetMap
 저작자 표시와 타일 사용 정책을 준수해야 합니다. 연결 준비 중인 서울 자료에는 공공누리
 제1유형과 제4유형이 섞여 있습니다. 데이터별 공식 URL, 갱신일, 확인된 필드, 좌표계,
 전처리 및 표시 의무는 [`data/README.md`](data/README.md)에 기록했습니다.
@@ -186,9 +202,9 @@ python -m scripts.train_rl
 ## 따릉이 복합 이동
 
 일반 최단 보행 경로가 1.2km 이상이거나 예상 도보 시간이 15분 이상이면 출발지와
-도착지 각각 700m 안에서 대여·반납 가능한 대여소를 찾습니다. 기본 provider는
-`data/sample/bike_stations.csv`의 고정 합성 값이며 실제 대여소나 실시간 재고가
-아닙니다.
+도착지 각각 700m 안에서 대여·반납 후보를 찾습니다. 샘플 provider는
+`data/sample/bike_stations.csv`를 사용합니다. 실제 모드는 2026년 6월 기준 정적
+대여소 위치를 사용하지만 현재 자전거와 빈 거치대 수는 제공하지 않습니다.
 
 표시되는 복합 이동 수치는 다음 가정으로 계산한 개략값입니다.
 
@@ -229,9 +245,9 @@ https://ai.google.dev/api/generate-content
 ## 사용된 모델·데이터·외부 서비스·구현 도구
 
 - AI 모델: 자체 학습 tabular Q-learning 정책; 선택적 Google Gemini 브리핑
-- 데이터: 합성 보행 부분 그래프, 합성 공간 지표, 합성 따릉이 대여소; 선택적 OSM
+- 데이터: 합성 데모 자료, 첨부 서울 공공데이터, 선택적 OSM 보행 그래프
 - 외부 서비스: OpenStreetMap/Nominatim/Overpass, 선택적 Gemini REST API;
-  서울 열린데이터광장과 기상청 adapter는 연결 준비 상태
+  서울 열린데이터광장 실시간 API와 기상청 adapter는 연결 준비 상태
 - 구현 도구: Python, Streamlit, Folium/streamlit-folium, OSMnx, NetworkX,
   GeoPandas/Shapely(간접 공간 처리), pandas, joblib, SQLite, pytest, Ruff
 

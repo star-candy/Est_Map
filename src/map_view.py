@@ -3,9 +3,11 @@
 from typing import Any
 
 import folium
+from folium.plugins import FastMarkerCluster
 
 from config.settings import Settings
 from src.domain import RouteComparison, RouteMode
+from src.indicators.real import load_real_points
 from src.indicators.sample import load_sample_indicators
 
 MODE_COLORS = {
@@ -71,6 +73,48 @@ def _add_legend(map_view: folium.Map, mode: RouteMode) -> None:
     map_view.get_root().html.add_child(folium.Element(legend))
 
 
+def _real_bounds(comparison: RouteComparison, margin: float = 0.003):
+    points = (*comparison.baseline.path, *comparison.optimized.path)
+    return (
+        round(min(point.latitude for point in points) - margin, 4),
+        round(min(point.longitude for point in points) - margin, 4),
+        round(max(point.latitude for point in points) + margin, 4),
+        round(max(point.longitude for point in points) + margin, 4),
+    )
+
+
+def _add_real_layers(map_view: folium.Map, comparison: RouteComparison) -> None:
+    bounds = _real_bounds(comparison)
+    layers = (
+        ("trees", "실제 가로수", False),
+        ("trees", "은행나무 암나무", True),
+        ("shades", "실제 그늘막", False),
+        ("streetlights", "실제 가로등", False),
+        ("bikes", "실제 따릉이 대여소(정적)", False),
+    )
+    for dataset, name, female_only in layers:
+        points = load_real_points(dataset, bounds)
+        if female_only:
+            points = tuple(point for point in points if point.is_female_ginkgo)
+        group = folium.FeatureGroup(name=f"{name} · 경로 주변", show=False, overlay=True)
+        FastMarkerCluster(
+            [[point.latitude, point.longitude] for point in points],
+            name=name,
+        ).add_to(group)
+        group.add_to(map_view)
+    notice_group = folium.FeatureGroup(name="도로 열선 자료 안내", show=False, overlay=True)
+    folium.Marker(
+        [37.5665, 126.9780],
+        tooltip="도로 열선 원본은 좌표 미제공",
+        popup=(
+            "열선 993건은 설치구간 문자열만 제공합니다. 지도에 임의 위치를 만들지 않고 "
+            "OSM 도로명이 일치하는 보행 edge에만 heating_score를 적용합니다."
+        ),
+        icon=folium.Icon(color="orange", icon="info-sign"),
+    ).add_to(notice_group)
+    notice_group.add_to(map_view)
+
+
 def create_route_map(
     settings: Settings, comparison: RouteComparison | None = None
 ) -> folium.Map:
@@ -115,9 +159,11 @@ def create_route_map(
         tooltip="도착지",
         icon=folium.Icon(color="red", icon="stop"),
     ).add_to(map_view)
-    _add_indicator_layers(map_view, comparison.mode)
+    if comparison.indicator_source == "seoul-public-data":
+        _add_real_layers(map_view, comparison)
+    else:
+        _add_indicator_layers(map_view, comparison.mode)
     _add_legend(map_view, comparison.mode)
     folium.LayerControl(collapsed=False).add_to(map_view)
     map_view.fit_bounds(baseline_points + optimized_points)
     return map_view
-

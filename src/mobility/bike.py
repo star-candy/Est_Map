@@ -1,6 +1,7 @@
 """교체 가능한 대여소 adapter와 따릉이 복합 이동 추천."""
 
 import csv
+import gzip
 from functools import lru_cache
 from pathlib import Path
 from typing import Protocol
@@ -28,6 +29,36 @@ class BikeStationProvider(Protocol):
 class SampleBikeStationProvider:
     def list_stations(self) -> tuple[BikeStation, ...]:
         return _load_sample_stations()
+
+
+class StaticSeoulBikeStationProvider:
+    """실제 대여소 위치를 사용하되 실시간 재고를 꾸며내지 않는다."""
+
+    def list_stations(self) -> tuple[BikeStation, ...]:
+        return _load_static_seoul_stations()
+
+
+@lru_cache(maxsize=1)
+def _load_static_seoul_stations() -> tuple[BikeStation, ...]:
+    path = SAMPLE_STATIONS_PATH.parents[1] / "processed" / "bike_stations.csv.gz"
+    stations: list[BikeStation] = []
+    with gzip.open(path, "rt", encoding="utf-8", newline="") as source:
+        for record in csv.DictReader(source):
+            stations.append(
+                BikeStation(
+                    station_id=record["station_id"],
+                    name=record["name"],
+                    coordinates=Coordinates(
+                        latitude=float(record["latitude"]),
+                        longitude=float(record["longitude"]),
+                    ),
+                    available_bikes=0,
+                    available_docks=0,
+                    is_sample=False,
+                    inventory_known=False,
+                )
+            )
+    return tuple(stations)
 
 
 @lru_cache(maxsize=1)
@@ -66,9 +97,9 @@ def find_nearest_station(
     for station in stations:
         if station.station_id == excluded_station_id:
             continue
-        if require_bike and station.available_bikes <= 0:
+        if require_bike and station.inventory_known and station.available_bikes <= 0:
             continue
-        if require_dock and station.available_docks <= 0:
+        if require_dock and station.inventory_known and station.available_docks <= 0:
             continue
         distance = haversine_m(point, station.coordinates)
         if distance <= radius_m:
@@ -127,7 +158,11 @@ def recommend_bike_trip(
     return BikeRecommendation(
         eligible=True,
         recommended=True,
-        reason="긴 도보 이동을 줄일 수 있는 샘플 따릉이 복합 이동 후보입니다.",
+        reason=(
+            "긴 도보 이동을 줄일 수 있는 따릉이 복합 이동 후보입니다."
+            if not pickup.is_sample
+            else "긴 도보 이동을 줄일 수 있는 샘플 따릉이 복합 이동 후보입니다."
+        ),
         pickup_station=pickup,
         dropoff_station=dropoff,
         walking_distance_m=walking,
@@ -135,4 +170,5 @@ def recommend_bike_trip(
         total_distance_m=total,
         estimated_duration_min=duration,
         is_sample=pickup.is_sample or dropoff.is_sample,
+        inventory_known=pickup.inventory_known and dropoff.inventory_known,
     )

@@ -12,7 +12,11 @@ from config.settings import SETTINGS
 from src.domain import Coordinates, RouteMode, RouteRequest
 from src.geocoding import SAMPLE_PLACES
 from src.map_view import create_route_map
-from src.mobility.bike import SampleBikeStationProvider, recommend_bike_trip
+from src.mobility.bike import (
+    SampleBikeStationProvider,
+    StaticSeoulBikeStationProvider,
+    recommend_bike_trip,
+)
 from src.reporting.accounting import calculate_trip_accounting
 from src.reporting.briefing import (
     BriefingError,
@@ -24,7 +28,7 @@ from src.services.routing import RouteServiceError, RoutingService
 from src.ui.components import (
     render_bike_recommendation,
     render_completion_success,
-    render_demo_badge,
+    render_data_badge,
     render_mode_help,
     render_monthly_report,
     render_results,
@@ -54,16 +58,17 @@ def main() -> None:
     )
     st.title(f"{SETTINGS.app_icon} {SETTINGS.app_title}")
     st.caption("서울의 일반 최단 보행 경로와 계절·안심 맞춤 경로를 비교하는 MVP입니다.")
-    render_demo_badge()
+    data_source = st.radio(
+        "경로 데이터",
+        ("샘플 데모", "실제 로컬 데이터 + OpenStreetMap"),
+        horizontal=True,
+        help="실제 모드는 첨부 공공데이터와 OSM 보행망을 사용하며 인터넷 연결이 필요합니다.",
+    )
+    use_real_data = data_source == "실제 로컬 데이터 + OpenStreetMap"
+    render_data_badge(use_real_data)
 
     with st.form("route_search"):
-        data_source = st.radio(
-            "경로 데이터",
-            ("샘플 데모", "실제 OpenStreetMap"),
-            horizontal=True,
-            help="OSM 모드는 인터넷 연결이 필요하며 실패하면 샘플 경로로 전환합니다.",
-        )
-        use_osm = data_source == "실제 OpenStreetMap"
+        use_osm = use_real_data
         direct_coordinates = False
         origin_coordinates = destination_coordinates = None
 
@@ -102,6 +107,7 @@ def main() -> None:
         use_osm=use_osm,
         origin_coordinates=origin_coordinates if direct_coordinates else None,
         destination_coordinates=destination_coordinates if direct_coordinates else None,
+        use_real_data=use_real_data,
     )
     if submitted:
         errors = request.validate()
@@ -137,7 +143,7 @@ def main() -> None:
             comparison.baseline,
             comparison.origin,
             comparison.destination,
-            SampleBikeStationProvider(),
+            StaticSeoulBikeStationProvider() if use_real_data else SampleBikeStationProvider(),
         )
     render_bike_recommendation(bike_recommendation)
 

@@ -8,8 +8,14 @@ from src.reporting.accounting import TripAccounting
 from src.reporting.monthly import MonthlySummary
 
 
-def render_demo_badge() -> None:
-    st.warning("🧪 **샘플 데이터 기반 데모** · 공간 지표는 실제 공공데이터가 아닙니다.")
+def render_data_badge(use_real_data: bool = False) -> None:
+    if use_real_data:
+        st.info(
+            "서울 공공데이터 파일 사용 · 열선은 좌표가 없어 도로명 일치 edge에만 반영하며 "
+            "결빙 위험은 포함하지 않습니다."
+        )
+    else:
+        st.warning("🧪 **샘플 데이터 기반 데모** · 공간 지표는 실제 공공데이터가 아닙니다.")
 
 
 def render_mode_help(mode: RouteMode) -> None:
@@ -75,8 +81,13 @@ def render_bike_recommendation(recommendation: BikeRecommendation | None) -> Non
     dropoff = recommendation.dropoff_station
     if pickup is None or dropoff is None:
         return
-    st.markdown(f"**대여:** {pickup.name} · 자전거 {pickup.available_bikes}대")
-    st.markdown(f"**반납:** {dropoff.name} · 빈 거치대 {dropoff.available_docks}개")
+    if recommendation.inventory_known:
+        st.markdown(f"**대여:** {pickup.name} · 자전거 {pickup.available_bikes}대")
+        st.markdown(f"**반납:** {dropoff.name} · 빈 거치대 {dropoff.available_docks}개")
+    else:
+        st.markdown(f"**대여 후보:** {pickup.name}")
+        st.markdown(f"**반납 후보:** {dropoff.name}")
+        st.warning("정적 대여소 위치 자료이며 현재 자전거·빈 거치대 수는 제공하지 않습니다.")
     distance_column, time_column = st.columns(2)
     distance_column.metric(
         "개략 복합 거리",

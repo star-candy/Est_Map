@@ -7,4 +7,5 @@ osmnx>=2.0,<3
 pytest>=8.3,<10
 joblib>=1.4,<2
 requests>=2.32,<3
+openpyxl>=3.1,<4
 ruff>=0.9,<1
