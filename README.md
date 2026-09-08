@@ -27,13 +27,13 @@ tabular Q-learning 정책을 우선 사용하고, 적용할 수 없으면 weight
 |---|---|---|
 | 경로 검색 | 장소와 모드 선택 | 거리 최단 경로와 모드 지표 기반 후보를 계산한다. |
 | 맞춤 경로 | 여름·가을·겨울·안심 선택 | 저장된 Q-learning 정책을 적용하고 불가하면 weighted A*로 전환한다. |
-| 지도 비교 | 지도와 layer 선택 | 두 경로, 출도착 marker, 합성 지표와 범례를 표시한다. |
+| 지도 비교 | 지도와 layer 선택 | 두 경로, 출도착 marker, 공간 지표와 범례를 표시한다. |
 | 따릉이 추천 | 1.2km/15분 이상 경로 검색 | 인근 합성 대여·반납소를 찾아 복합 거리·시간을 추정한다. |
 | 이동 완료 | 실제 경로·택시 대체 여부 확인 | 탄소·비용을 결정식으로 계산하고 중복 없이 월별 집계한다. |
-| 월간 브리핑 | 리포트 월 선택 | 기본 템플릿 또는 선택적 Gemini가 계산 완료 통계를 설명한다. |
+| 월간 이동 코치 | 리포트 월 선택 후 질문 | LangChain Gemini가 월간·전월 통계와 대화 이력에 근거해 답한다. |
 
 거리·비용·탄소와 경로 가중치는 생성형 AI가 계산하지 않습니다. Gemini는 키가 있을
-때 이미 계산된 집계값을 자연어로 설명하는 선택 기능뿐입니다.
+때 이미 계산된 집계와 최근 대화를 바탕으로 비교·패턴·다음 행동을 설명합니다.
 
 ## 요구 환경
 
@@ -89,7 +89,7 @@ RL 정책 적용을 확인하는 고정 예제이고, `서울역 → 동대문�
 | 변수 | 용도 | 샘플 실행 필수 |
 |---|---|---:|
 | `LOCAL_REPORT_DB_PATH` | 로컬 SQLite 집계 파일 | 아니요 |
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | 선택적 월간 자연어 브리핑 | 아니요 |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | 선택적 LangChain 월간 이동 코치 | 아니요 |
 | `SEOUL_OPEN_API_KEY` | 서울 열린데이터광장 API | 아니요 |
 | `SEOUL_BIKE_API_SERVICE` | 명세로 확인한 따릉이 서비스명 | 아니요 |
 | `KMA_DATA_API_KEY` | 기상청 공공데이터포털 API | 아니요 |
@@ -121,7 +121,7 @@ streamlit run app.py --server.headless true
 - `src/services/routing.py`: 지오코딩과 그래프 및 fallback을 조율하는 서비스
 - `src/map_view.py`: 두 경로, 모드별 합성 지표 layer와 범례
 - `src/mobility/bike.py`: 대여소 provider와 따릉이 복합 이동 추천
-- `src/reporting/`: 비용·탄소 계산, SQLite 월간 집계와 브리핑 adapter
+- `src/reporting/`: 비용·탄소 계산, SQLite 월간 집계와 LangChain 챗봇 adapter
 - `config/accounting.py`: 택시비와 탄소 계산 가정
 - `src/ui/components.py`: 결과 빈 상태 등 UI 구성 요소
 
@@ -243,17 +243,17 @@ MVP 계산 가정은 `config/accounting.py`에서 관리합니다.
 탄소 절감량은 동일 거리의 승용차 이동을 대체했다고 가정한 추정값입니다. 택시비 절감액은
 사용자가 `택시를 타는 대신 이 경로를 걸었습니다`를 확인한 이동에만 계산·집계합니다.
 
-기본 브리핑은 API 키 없이 코드가 계산한 월간 통계를 한국어 템플릿으로 설명합니다.
-`GEMINI_API_KEY`가 있을 때만 선택 버튼이 나타나며, Gemini adapter에는 이미 계산된 월,
-이동 횟수, 거리, 탄소와 비용 통계만 전달합니다. Gemini가 계산을 수행하지는 않습니다.
-REST 호출은 Google의 공식 `models.generateContent` 형식을 사용합니다:
-https://ai.google.dev/api/generate-content
+기본 템플릿은 API 키 없이 월간 통계를 설명합니다. 추정 비용 절감액은 선택 월의
+직전 달과 비교한 증감도 함께 표시합니다. `GEMINI_API_KEY`가 있으면 LangChain의
+`ChatGoogleGenerativeAI` 기반 월간 이동 코치가 활성화됩니다. 선택 월·전월의 계산된
+집계와 최근 대화 8개만 전달하며 좌표와 전체 경로는 보내지 않습니다. 모델은 통계를
+재계산하지 않고 사용자의 질문에 맞춰 비교, 관찰 가능한 패턴과 다음 행동을 설명합니다.
 - OpenStreetMap 타일은 인터넷 연결이 없으면 나타나지 않을 수 있지만 앱 시작과 입력
   UI에는 영향을 주지 않습니다.
 
 ## 사용된 모델·데이터·외부 서비스·구현 도구
 
-- AI 모델: 자체 학습 tabular Q-learning 정책; 선택적 Google Gemini 브리핑
+- AI 모델: 자체 학습 tabular Q-learning 정책; 선택적 LangChain Google Gemini 챗봇
 - 데이터: 합성 데모 자료, 첨부 서울 공공데이터, 선택적 OSM 보행 그래프
 - 외부 서비스: OpenStreetMap/Nominatim/Overpass, 선택적 Gemini REST API;
   서울 열린데이터광장 실시간 API와 기상청 adapter는 연결 준비 상태

@@ -20,7 +20,7 @@ from src.mobility.bike import (
 from src.reporting.accounting import calculate_trip_accounting
 from src.reporting.briefing import (
     BriefingError,
-    GeminiBriefingProvider,
+    MonthlyReportChatbot,
     TemplateBriefingProvider,
 )
 from src.reporting.monthly import MonthlyReportStore
@@ -187,24 +187,45 @@ def main() -> None:
     report_months = (current_month,) + tuple(month for month in months if month != current_month)
     selected_month = st.selectbox("리포트 월", report_months)
     summary = store.monthly_summary(selected_month)
+    previous_summary = store.previous_month_summary(selected_month)
     template_briefing = TemplateBriefingProvider().generate(summary)
-    render_monthly_report(summary, template_briefing)
+    render_monthly_report(summary, template_briefing, previous_summary)
 
     if SETTINGS.gemini_api_key:
-        if st.button("Gemini 브리핑 생성"):
+        st.subheader("월간 이동 코치")
+        st.caption("월간 통계를 바탕으로 비교, 패턴과 다음 이동 목표를 대화로 확인하세요.")
+        histories = st.session_state.setdefault("monthly_chat_histories", {})
+        history = histories.setdefault(selected_month, [])
+        for turn in history:
+            with st.chat_message(turn["role"]):
+                st.markdown(turn["content"])
+        question = st.chat_input("예: 지난달과 비교해서 무엇이 달라졌나요?")
+        if question:
+            with st.chat_message("user"):
+                st.markdown(question)
             try:
-                provider = GeminiBriefingProvider(
+                provider = MonthlyReportChatbot(
                     SETTINGS.gemini_api_key,
                     SETTINGS.gemini_model,
                     SETTINGS.external_request_timeout_seconds,
                 )
-                st.session_state.gemini_briefing = provider.generate(summary)
+                with st.spinner("월간 이동 코치가 답변을 준비하고 있습니다..."):
+                    answer = provider.reply(summary, previous_summary, history, question)
+                history.extend(
+                    (
+                        {"role": "user", "content": question},
+                        {"role": "assistant", "content": answer},
+                    )
+                )
+                with st.chat_message("assistant"):
+                    st.markdown(answer)
             except BriefingError as exc:
-                st.warning(f"{exc} 기본 템플릿 브리핑을 유지합니다.")
-        if st.session_state.get("gemini_briefing"):
-            st.info(st.session_state.gemini_briefing)
+                st.warning(f"{exc} 기본 템플릿 리포트는 계속 사용할 수 있습니다.")
     else:
-        st.caption("GEMINI_API_KEY가 없어 계산값 기반 기본 템플릿 브리핑을 사용합니다.")
+        st.caption(
+            "GEMINI_API_KEY가 없어 계산값 기반 기본 템플릿을 사용합니다. "
+            "키를 설정하면 월간 통계와 대화하는 이동 코치가 활성화됩니다."
+        )
 
 
 if __name__ == "__main__":

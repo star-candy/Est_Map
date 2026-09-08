@@ -13,8 +13,13 @@ from src.reporting.accounting import (
     estimate_carbon_saved_g,
     estimate_taxi_fare_krw,
 )
-from src.reporting.briefing import GeminiBriefingProvider, TemplateBriefingProvider
-from src.reporting.monthly import MonthlyReportStore
+from src.reporting.briefing import (
+    GeminiBriefingProvider,
+    MonthlyReportChatbot,
+    TemplateBriefingProvider,
+)
+from src.reporting.monthly import MonthlyReportStore, MonthlySummary
+from src.ui.components import monthly_savings_delta
 
 SEOUL_TIMEZONE = ZoneInfo("Asia/Seoul")
 
@@ -68,6 +73,13 @@ def test_monthly_aggregation_and_duplicate_prevention(tmp_path: Path) -> None:
     assert february.trip_count == 1
     assert february.taxi_saved_krw == 0
     assert store.available_months() == ("2026-02", "2026-01")
+    assert store.previous_month_summary("2026-01").month == "2025-12"
+
+
+def test_monthly_savings_delta_compares_previous_calendar_month() -> None:
+    current = MonthlySummary("2026-02", 2, 2_000, 384, 5_000)
+    previous = MonthlySummary("2026-01", 1, 1_000, 192, 4_800)
+    assert monthly_savings_delta(current, previous) == 200
 
 
 def test_database_does_not_store_coordinates_or_paths(tmp_path: Path) -> None:
@@ -125,3 +137,33 @@ def test_gemini_adapter_sends_only_structured_aggregate(monkeypatch, tmp_path: P
     assert "latitude" not in prompt
     assert "longitude" not in prompt
     assert "path" not in prompt
+
+
+def test_langchain_chatbot_uses_statistics_and_history(monkeypatch) -> None:
+    captured = {}
+
+    class FakeResponse:
+        text = "지난달보다 이동이 늘었습니다. 다음 목표를 함께 정해볼까요?"
+        content = text
+
+    class FakeModel:
+        def invoke(self, messages):
+            captured["messages"] = messages
+            return FakeResponse()
+
+    chatbot = MonthlyReportChatbot("test-key", "test-model")
+    monkeypatch.setattr(chatbot, "_chat_model", lambda: FakeModel())
+    current = MonthlySummary("2026-02", 2, 2_000, 384, 5_000)
+    previous = MonthlySummary("2026-01", 1, 1_000, 192, 4_800)
+    answer = chatbot.reply(
+        current,
+        previous,
+        [{"role": "user", "content": "지난 목표를 기억해줘"}],
+        "지난달과 비교해줘",
+    )
+
+    serialized = " ".join(str(message.content) for message in captured["messages"])
+    assert "walking_distance_km" in serialized
+    assert "지난 목표" in serialized
+    assert "latitude" not in serialized
+    assert answer.startswith("지난달보다")

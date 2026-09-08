@@ -93,3 +93,10 @@ class MonthlyReportStore:
                 "SELECT DISTINCT month FROM completed_trips ORDER BY month DESC"
             ).fetchall()
         return tuple(str(row[0]) for row in rows)
+
+    def previous_month_summary(self, month: str) -> MonthlySummary:
+        year, month_number = (int(part) for part in month.split("-"))
+        previous = (
+            f"{year - 1}-12" if month_number == 1 else f"{year}-{month_number - 1:02d}"
+        )
+        return self.monthly_summary(previous)

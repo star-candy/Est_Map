@@ -36,11 +36,12 @@ def test_keyless_sample_flow_for_every_mode(mode: RouteMode) -> None:
     assert "일반 최단 경로" in html
     assert f"{mode.value} 맞춤 경로" in html
     assert "공간 지표는 모두 합성 데이터" in html
+    assert "color:#111827 !important" in html
     expected_layer = {
-        RouteMode.SUMMER: "합성 그늘·수관 proxy",
-        RouteMode.AUTUMN: "합성 은행나무 위험",
-        RouteMode.WINTER: "합성 도로 열선",
-        RouteMode.SAFETY: "합성 가로등·야간 안전 proxy",
+        RouteMode.SUMMER: "그늘·수관 지표",
+        RouteMode.AUTUMN: "은행나무 암나무",
+        RouteMode.WINTER: "도로 열선 설치 구간",
+        RouteMode.SAFETY: "가로등·야간 보행 지표",
     }[mode]
     layer_names = {
         getattr(child, "layer_name", None) for child in route_map._children.values()

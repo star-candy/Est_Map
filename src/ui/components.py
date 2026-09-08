@@ -8,6 +8,13 @@ from src.reporting.accounting import TripAccounting
 from src.reporting.monthly import MonthlySummary
 
 
+def monthly_savings_delta(
+    summary: MonthlySummary, previous_summary: MonthlySummary | None
+) -> int:
+    previous = previous_summary.taxi_saved_krw if previous_summary else 0
+    return summary.taxi_saved_krw - previous
+
+
 def render_data_badge(use_real_data: bool = False) -> None:
     if use_real_data:
         st.info(
@@ -114,11 +121,18 @@ def render_completion_success(accounting: TripAccounting, taxi_replaced: bool) -
         st.write(f"택시 대신 걸어서 아낀 추정 비용: **{accounting.taxi_saved_krw:,}원**")
 
 
-def render_monthly_report(summary: MonthlySummary, briefing: str) -> None:
+def render_monthly_report(
+    summary: MonthlySummary, briefing: str, previous_summary: MonthlySummary | None = None
+) -> None:
     st.subheader("월간 이용 리포트")
     distance_column, carbon_column, savings_column = st.columns(3)
     distance_column.metric("총 걸은 거리", f"{summary.distance_m / 1_000:.2f} km")
     carbon_column.metric("탄소 절감량", f"{summary.carbon_saved_g / 1_000:.2f} kgCO₂e")
-    savings_column.metric("추정 비용 절감액", f"{summary.taxi_saved_krw:,}원")
+    savings_delta = monthly_savings_delta(summary, previous_summary)
+    savings_column.metric(
+        "추정 비용 절감액",
+        f"{summary.taxi_saved_krw:,}원",
+        delta=f"{savings_delta:+,}원 (전월 대비)",
+    )
     st.caption(f"{summary.month} · 완료 이동 {summary.trip_count}건")
     st.info(briefing)
