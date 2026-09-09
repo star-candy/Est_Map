@@ -130,8 +130,45 @@ def test_real_mode_routes_and_map_layers_when_osm_is_offline(monkeypatch) -> Non
     assert "안심귀갓길 연계 시설 · 경로 주변" in layer_names
     assert "불법주정차 단속 CCTV · 경로 주변" in layer_names
     assert "도로명으로 확인된 열선 구간" in layer_names
+    html = route_map.get_root().render()
+    assert "공간 정보" in html
+    assert "안심귀갓길 시설" in html
+    assert "cluster.getChildCount()" not in html
+    assert "단속 CCTV" in html
+    assert "#dc2626" in html
+    assert "#ca8a04" in html
 
 
+def test_real_layers_are_automatically_selected_for_each_mode(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.services.routing.OSMGeocoder.geocode",
+        lambda self, query: SAMPLE_PLACES[query],
+    )
+    monkeypatch.setattr(
+        "src.services.routing.load_osm_walking_graph",
+        lambda *args, **kwargs: load_sample_walking_graph(),
+    )
+    expected = {
+        RouteMode.SUMMER: {"실제 가로수 · 경로 주변", "실제 그늘막 · 경로 주변"},
+        RouteMode.AUTUMN: {"은행나무 암나무 · 경로 주변"},
+        RouteMode.WINTER: {"도로명으로 확인된 열선 구간"},
+        RouteMode.SAFETY: {
+            "실제 가로등 · 경로 주변",
+            "안심귀갓길 연계 시설 · 경로 주변",
+            "불법주정차 단속 CCTV · 경로 주변",
+        },
+    }
+    for mode, expected_visible in expected.items():
+        comparison = RoutingService().find_routes(
+            RouteRequest("서울역", "광화문", mode, use_osm=True, use_real_data=True)
+        )
+        route_map = create_route_map(SETTINGS, comparison)
+        visible = {
+            child.layer_name
+            for child in route_map._children.values()
+            if getattr(child, "show", False)
+        }
+        assert expected_visible <= visible
 def test_static_bike_data_does_not_invent_inventory() -> None:
     stations = StaticSeoulBikeStationProvider().list_stations()
     assert len(stations) == 2_789

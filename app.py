@@ -39,6 +39,7 @@ from src.ui.components import (
     render_mode_help,
     render_monthly_report,
     render_responsible_use_notice,
+    render_restaurant_coupon_offer,
     render_restaurants,
     render_results,
 )
@@ -224,6 +225,7 @@ def main() -> None:
                     st.session_state.gemini_briefing = None
                     st.session_state.restaurants = ()
                     st.session_state.restaurant_errors = ()
+                    st.session_state.restaurant_coupon_open = False
                     st.session_state.navigation_active = False
                     st.session_state.navigation_audio = None
                 except RouteServiceError as exc:
@@ -263,6 +265,10 @@ def main() -> None:
                 )
                 st.session_state.restaurants = restaurants
                 st.session_state.restaurant_errors = restaurant_errors
+                if restaurants:
+                    st.session_state.restaurant_coupon_open = True
+        if st.session_state.get("restaurant_coupon_open", False) and restaurants:
+            render_restaurant_coupon_offer(restaurants)
         if not providers:
             st.caption("TMAP 또는 Google Places API 키가 없어 음식점 검색을 사용할 수 없습니다.")
     st.subheader("지도")

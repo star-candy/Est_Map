@@ -152,6 +152,28 @@ def render_restaurants(restaurants: tuple[Restaurant, ...], errors: tuple[str, .
         st.warning(" ".join(errors))
 
 
+def _close_restaurant_coupon() -> None:
+    st.session_state.restaurant_coupon_open = False
+
+
+@st.dialog("🎁 경로 주변 맛집 쿠폰", on_dismiss=_close_restaurant_coupon)
+def render_restaurant_coupon_offer(restaurants: tuple[Restaurant, ...]) -> None:
+    """맛집 검색 직후 제휴 쿠폰 기능을 안내하는 대화상자를 표시한다."""
+    st.success("맞춤 경로 주변 맛집을 위한 쿠폰 혜택을 확인해 보세요.")
+    st.markdown("**쿠폰 대상 추천 맛집**")
+    for restaurant in restaurants[:3]:
+        st.write(f"• {restaurant.name}")
+    if len(restaurants) > 3:
+        st.caption(f"외 {len(restaurants) - 3}곳의 추천 맛집")
+    st.info(
+        "현재는 제휴 연동 전 MVP 안내 화면입니다. 실제 할인율·사용 조건·발급 쿠폰은 "
+        "표시하지 않으며, 매장이나 쿠폰 공급자와의 제휴가 연결된 뒤 제공됩니다."
+    )
+    if st.button("확인", type="primary", width="stretch", key="close_restaurant_coupon"):
+        _close_restaurant_coupon()
+        st.rerun(scope="app")
+
+
 def render_completion_success(accounting: TripAccounting, taxi_replaced: bool) -> None:
     st.success(
         f"✅ 이동 완료 · {accounting.distance_m / 1_000:.2f}km가 이번 달 기록에 반영됐습니다."

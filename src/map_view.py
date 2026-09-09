@@ -3,7 +3,7 @@
 from typing import Any
 
 import folium
-from folium.plugins import FastMarkerCluster
+from folium.plugins import MarkerCluster
 
 from config.settings import Settings
 from src.domain import Coordinates, Restaurant, RouteComparison, RouteMode, RoutePath
@@ -28,6 +28,21 @@ MODE_CATEGORIES = {
     RouteMode.AUTUMN: {"ginkgo"},
     RouteMode.WINTER: {"heating", "icing"},
     RouteMode.SAFETY: {"safety"},
+}
+REAL_LAYER_STYLES = {
+    "trees": ("가로수", "나", "#15803d"),
+    "female_ginkgo": ("은행나무 암나무", "은", "#d97706"),
+    "shades": ("그늘막", "그", "#0d9488"),
+    "streetlights": ("가로등", "등", "#ca8a04"),
+    "safe_return": ("안심귀갓길 시설", "안", "#7c3aed"),
+    "cctv": ("불법주정차 단속 CCTV", "C", "#dc2626"),
+    "bikes": ("따릉이 대여소", "자", "#0284c7"),
+}
+REAL_MODE_LAYERS = {
+    RouteMode.SUMMER: {"trees", "shades"},
+    RouteMode.AUTUMN: {"female_ginkgo"},
+    RouteMode.WINTER: {"heating"},
+    RouteMode.SAFETY: {"streetlights", "safe_return", "cctv"},
 }
 
 
@@ -62,6 +77,18 @@ def _add_indicator_layers(map_view: folium.Map, mode: RouteMode) -> None:
 def _add_legend(map_view: folium.Map, mode: RouteMode, is_sample: bool) -> None:
     optimized_color = MODE_COLORS[mode]
     data_label = "합성 공간 지표" if is_sample else "서울 공공데이터 공간 지표"
+    real_items = "" if is_sample else """
+      <div style="margin-top:7px; padding-top:6px; border-top:1px solid #e5e7eb">
+        <b>공간 정보</b><br>
+        <span style="color:#15803d">●</span> 가로수&nbsp;
+        <span style="color:#0d9488">●</span> 그늘막&nbsp;
+        <span style="color:#d97706">●</span> 은행나무 암나무<br>
+        <span style="color:#ca8a04">●</span> 가로등&nbsp;
+        <span style="color:#7c3aed">●</span> 안심귀갓길 시설&nbsp;
+        <span style="color:#dc2626">●</span> 단속 CCTV<br>
+        <span style="color:#0284c7">●</span> 따릉이 대여소
+      </div>
+    """
     legend = f"""
     <div style="position:fixed; bottom:30px; left:30px; z-index:9999; background:#ffffff;
       color:#111827 !important; padding:10px 12px; border:1px solid #aaa;
@@ -70,6 +97,7 @@ def _add_legend(map_view: folium.Map, mode: RouteMode, is_sample: bool) -> None:
       <span style="color:#64748b">━━</span> 일반 최단 경로<br>
       <span style="color:{optimized_color}">━━</span> {mode.value} 맞춤 경로<br>
       <small>{data_label}</small>
+      {real_items}
     </div>
     """
     map_view.get_root().html.add_child(folium.Element(legend))
@@ -88,32 +116,65 @@ def _real_bounds(comparison: RouteComparison, margin: float = 0.003):
 def _add_real_layers(map_view: folium.Map, comparison: RouteComparison) -> None:
     bounds = _real_bounds(comparison)
     layers = (
-        ("trees", "실제 가로수", False),
-        ("trees", "은행나무 암나무", True),
-        ("shades", "실제 그늘막", False),
-        ("streetlights", "실제 가로등", False),
-        ("safe_return", "안심귀갓길 연계 시설", False),
-        ("cctv", "불법주정차 단속 CCTV", False),
-        ("bikes", "실제 따릉이 대여소(정적)", False),
+        ("trees", "trees", "실제 가로수", False),
+        ("trees", "female_ginkgo", "은행나무 암나무", True),
+        ("shades", "shades", "실제 그늘막", False),
+        ("streetlights", "streetlights", "실제 가로등", False),
+        ("safe_return", "safe_return", "안심귀갓길 연계 시설", False),
+        ("cctv", "cctv", "불법주정차 단속 CCTV", False),
+        ("bikes", "bikes", "실제 따릉이 대여소(정적)", False),
     )
-    for dataset, name, female_only in layers:
+    for dataset, style_key, name, female_only in layers:
         points = load_real_points(dataset, bounds)
         if female_only:
             points = tuple(point for point in points if point.is_female_ginkgo)
-        group = folium.FeatureGroup(name=f"{name} · 경로 주변", show=False, overlay=True)
-        FastMarkerCluster(
-            [[point.latitude, point.longitude] for point in points],
+        group = folium.FeatureGroup(
+            name=f"{name} · 경로 주변",
+            show=style_key in REAL_MODE_LAYERS[comparison.mode],
+            overlay=True,
+        )
+        _, symbol, color = REAL_LAYER_STYLES[style_key]
+        cluster = MarkerCluster(
             name=name,
+            icon_create_function=f"""
+                function(cluster) {{
+                    return L.divIcon({{
+                        html: '<div title="{name} 묶음" style="background:{color};color:white;' +
+                              'border-radius:50%;' +
+                              'width:34px;height:34px;line-height:34px;text-align:center;' +
+                              'font-weight:700;border:2px solid white">{symbol}</div>',
+                        className: 'seoul-data-cluster', iconSize: [34, 34]
+                    }});
+                }}
+            """,
         ).add_to(group)
+        for point in points:
+            popup = point.label
+            if point.detail:
+                popup += f"<br>{point.detail}"
+            folium.Marker(
+                [point.latitude, point.longitude],
+                tooltip=f"{name}: {point.label}",
+                popup=popup,
+                icon=folium.DivIcon(
+                    html=(
+                        f'<div title="{name}" style="background:{color};color:white;'
+                        "border:2px solid white;border-radius:50%;width:24px;height:24px;"
+                        f'line-height:20px;text-align:center;font-weight:700">{symbol}</div>'
+                    )
+                ),
+            ).add_to(cluster)
         group.add_to(map_view)
     heating_group = folium.FeatureGroup(
-        name="도로명으로 확인된 열선 구간", show=comparison.mode is RouteMode.WINTER, overlay=True
+        name="도로명으로 확인된 열선 구간",
+        show="heating" in REAL_MODE_LAYERS[comparison.mode],
+        overlay=True,
     )
     for segment in comparison.heating_segments:
         folium.PolyLine(
             [(point.latitude, point.longitude) for point in segment],
             color="#ef4444",
-            weight=7,
+            weight=4,
             opacity=0.75,
             tooltip="원본 설치구간과 OSM 도로명이 일치한 열선 구간",
         ).add_to(heating_group)
