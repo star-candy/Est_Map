@@ -11,11 +11,12 @@ from streamlit_folium import st_folium
 from config.settings import SETTINGS
 from src.domain import Coordinates, RouteMode, RouteRequest
 from src.geocoding import SAMPLE_PLACES
-from src.map_view import create_route_map
+from src.map_view import create_navigation_map, create_route_map
 from src.mobility.bike import (
     StaticSeoulBikeStationProvider,
     recommend_bike_trip,
 )
+from src.navigation import build_guidance, voice_announcement_key
 from src.places.restaurants import (
     GoogleRestaurantProvider,
     TmapRestaurantProvider,
@@ -30,6 +31,7 @@ from src.reporting.briefing import (
 from src.reporting.monthly import MonthlyReportStore
 from src.reporting.taxi import TaxiFareError, TmapTaxiFareProvider
 from src.services.routing import RouteServiceError, RoutingService
+from src.services.speech import GeminiSpeechProvider, SpeechError
 from src.ui.components import (
     render_bike_recommendation,
     render_completion_success,
@@ -45,11 +47,113 @@ SEOUL_TIMEZONE = ZoneInfo("Asia/Seoul")
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 
+def _render_navigation(comparison) -> None:
+    st.subheader("경로 안내")
+    if not st.session_state.get("navigation_active", False):
+        selected = st.radio(
+            "안내할 경로를 선택하세요.",
+            ("일반 보행 경로", f"{comparison.mode.value} 맞춤 경로"),
+            horizontal=True,
+            key="navigation_route_choice",
+        )
+        if st.button("경로 안내 시작", type="primary", width="stretch"):
+            st.session_state.navigation_active = True
+            st.session_state.navigation_route_kind = selected
+            route = comparison.baseline if selected == "일반 보행 경로" else comparison.optimized
+            st.session_state.navigation_position = route.path[0]
+            st.session_state.navigation_audio = None
+            st.session_state.navigation_announced_keys = set()
+            st.session_state.navigation_first_announcement = True
+            st.rerun()
+        return
+
+    route_kind = st.session_state.navigation_route_kind
+    route = comparison.baseline if route_kind == "일반 보행 경로" else comparison.optimized
+    stop_column, reset_column = st.columns(2)
+    if stop_column.button("안내 종료", width="stretch"):
+        st.session_state.navigation_active = False
+        st.session_state.navigation_audio = None
+        st.rerun()
+    if reset_column.button("출발지로 위치 초기화", width="stretch"):
+        st.session_state.navigation_position = route.path[0]
+        st.session_state.navigation_audio = None
+        st.session_state.navigation_announced_keys = set()
+        st.session_state.navigation_first_announcement = True
+        st.rerun()
+
+    st.caption(
+        "브라우저 위치 버튼은 현재 위치를 한 번 갱신합니다. 연속 추적은 브라우저 정책상 "
+        "주기적인 사용자 갱신이 필요하며, 테스트할 때는 아래 지도를 클릭하세요."
+    )
+    try:
+        from streamlit_geolocation import streamlit_geolocation
+
+        location = streamlit_geolocation()
+        if isinstance(location, dict) and location.get("latitude") is not None:
+            st.session_state.navigation_position = Coordinates(
+                float(location["latitude"]), float(location["longitude"])
+            )
+    except Exception:
+        st.caption("브라우저 위치 컴포넌트를 사용할 수 없어 지도 클릭 테스트만 제공합니다.")
+
+    current = st.session_state.get("navigation_position", route.path[0])
+    guidance = build_guidance(route, current)
+    if guidance.arrived:
+        st.success(guidance.instruction)
+    elif guidance.off_route:
+        st.warning(guidance.instruction)
+    else:
+        st.info(f"🧭 {guidance.instruction}")
+    distance_column, remaining_column = st.columns(2)
+    distance_column.metric("다음 행동까지", f"{guidance.distance_to_action_m:.0f}m")
+    remaining_column.metric("남은 거리", f"{guidance.remaining_distance_m:.0f}m")
+    st.progress(min(1.0, max(0.0, guidance.route_progress)), text="경로 진행률")
+
+    navigation_result = st_folium(
+        create_navigation_map(SETTINGS, route, current, guidance.next_position),
+        height=SETTINGS.map_height,
+        use_container_width=True,
+        returned_objects=["last_clicked"],
+        key="navigation_map",
+    )
+    clicked = navigation_result.get("last_clicked") if navigation_result else None
+    if clicked:
+        clicked_position = Coordinates(float(clicked["lat"]), float(clicked["lng"]))
+        if clicked_position != current:
+            st.session_state.navigation_position = clicked_position
+            st.session_state.navigation_audio = None
+            st.rerun()
+
+    if SETTINGS.gemini_api_key:
+        automatic_voice = st.toggle(
+            "위치에 따라 음성 안내 자동 재생",
+            value=True,
+            help="출발, 회전 지점 60m 전, 경로 이탈 및 도착 시 자동으로 안내합니다.",
+        )
+        announcement_key = voice_announcement_key(
+            guidance,
+            initial=st.session_state.get("navigation_first_announcement", True),
+        )
+        announced = st.session_state.setdefault("navigation_announced_keys", set())
+        if automatic_voice and announcement_key is not None and announcement_key not in announced:
+            announced.add(announcement_key)
+            st.session_state.navigation_first_announcement = False
+            try:
+                with st.spinner("다음 이동 음성을 준비하고 있습니다..."):
+                    st.session_state.navigation_audio = GeminiSpeechProvider(
+                        SETTINGS.gemini_api_key
+                    ).synthesize(guidance.instruction)
+            except SpeechError as exc:
+                st.warning(str(exc))
+        if st.session_state.get("navigation_audio"):
+            st.audio(st.session_state.navigation_audio, format="audio/wav", autoplay=True)
+    else:
+        st.caption("GEMINI_API_KEY를 설정하면 검증된 텍스트 안내를 음성으로 재생할 수 있습니다.")
+
+
 def _coordinate_inputs(prefix: str, default: Coordinates) -> Coordinates:
     latitude_column, longitude_column = st.columns(2)
-    latitude = latitude_column.number_input(
-        f"{prefix} 위도", value=default.latitude, format="%.6f"
-    )
+    latitude = latitude_column.number_input(f"{prefix} 위도", value=default.latitude, format="%.6f")
     longitude = longitude_column.number_input(
         f"{prefix} 경도", value=default.longitude, format="%.6f"
     )
@@ -120,6 +224,8 @@ def main() -> None:
                     st.session_state.gemini_briefing = None
                     st.session_state.restaurants = ()
                     st.session_state.restaurant_errors = ()
+                    st.session_state.navigation_active = False
+                    st.session_state.navigation_audio = None
                 except RouteServiceError as exc:
                     st.session_state.route_comparison = None
                     st.error(str(exc))
@@ -167,6 +273,8 @@ def main() -> None:
         returned_objects=[],
     )
     render_results(comparison)
+    if comparison is not None:
+        _render_navigation(comparison)
     render_restaurants(restaurants, restaurant_errors)
     bike_recommendation = None
     if comparison is not None:

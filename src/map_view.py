@@ -6,7 +6,7 @@ import folium
 from folium.plugins import FastMarkerCluster
 
 from config.settings import Settings
-from src.domain import Restaurant, RouteComparison, RouteMode
+from src.domain import Coordinates, Restaurant, RouteComparison, RouteMode, RoutePath
 from src.indicators.real import load_real_points
 from src.indicators.sample import load_sample_indicators
 
@@ -183,4 +183,47 @@ def create_route_map(
     _add_legend(map_view, comparison.mode, comparison.indicator_source != "seoul-public-data")
     folium.LayerControl(collapsed=False).add_to(map_view)
     map_view.fit_bounds(baseline_points + optimized_points)
+    return map_view
+
+
+def create_navigation_map(
+    settings: Settings,
+    route: RoutePath,
+    current: Coordinates,
+    next_position: Coordinates,
+) -> folium.Map:
+    """현재 위치, 선택 경로와 다음 행동 지점을 표시하는 클릭 가능한 안내 지도."""
+    points = [(point.latitude, point.longitude) for point in route.path]
+    map_view = folium.Map(
+        location=[current.latitude, current.longitude],
+        zoom_start=17,
+        tiles="OpenStreetMap",
+        control_scale=True,
+    )
+    folium.PolyLine(
+        points, color="#2563eb", weight=7, opacity=0.85, tooltip="선택한 안내 경로"
+    ).add_to(map_view)
+    folium.Marker(
+        [current.latitude, current.longitude],
+        tooltip="현재 위치",
+        icon=folium.Icon(color="blue", icon="user", prefix="fa"),
+    ).add_to(map_view)
+    folium.CircleMarker(
+        [next_position.latitude, next_position.longitude],
+        radius=8,
+        color="#f97316",
+        fill=True,
+        fill_opacity=0.9,
+        tooltip="다음 이동 지점",
+    ).add_to(map_view)
+    folium.Marker(points[-1], tooltip="목적지", icon=folium.Icon(color="red", icon="stop")).add_to(
+        map_view
+    )
+    map_view.get_root().html.add_child(
+        folium.Element(
+            "<div style='position:fixed;bottom:25px;left:25px;z-index:9999;"
+            "background:white;padding:8px;border:1px solid #999;border-radius:6px'>"
+            "테스트: 지도를 클릭해 현재 위치 이동</div>"
+        )
+    )
     return map_view
