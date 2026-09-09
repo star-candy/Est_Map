@@ -34,7 +34,7 @@ def _explanation(request: RouteRequest, baseline_score: float, optimized_score: 
         "여름": "가로수와 그늘막이 많은 구간",
         "가을": "은행나무 암나무 위험이 낮은 구간",
         "겨울": "도로 열선 설치 구간을 지나고 결빙 위험 지표가 낮은 구간",
-        "안심": "안심귀갓길 연계 시설과 가로등이 가까운 구간",
+        "안심": "단속 CCTV와 안심귀갓길 시설이 가까운 구간",
     }[request.mode.value]
     change = optimized_score - baseline_score
     if change > 0.05:

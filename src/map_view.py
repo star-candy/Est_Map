@@ -93,6 +93,7 @@ def _add_real_layers(map_view: folium.Map, comparison: RouteComparison) -> None:
         ("shades", "실제 그늘막", False),
         ("streetlights", "실제 가로등", False),
         ("safe_return", "안심귀갓길 연계 시설", False),
+        ("cctv", "불법주정차 단속 CCTV", False),
         ("bikes", "실제 따릉이 대여소(정적)", False),
     )
     for dataset, name, female_only in layers:

@@ -20,11 +20,7 @@ def mode_cost_factor(data: dict[str, Any], mode: RouteMode) -> float:
     elif mode is RouteMode.WINTER:
         factor = 1.0 + 0.65 * float(data["icing_risk"]) - 0.65 * float(data["heating_score"])
     else:
-        factor = (
-            1.0
-            + 0.30 * (1.0 - float(data["light_score"]))
-            + 0.35 * (1.0 - float(data["safety_score"]))
-        )
+        factor = 1.0 + 0.65 * (1.0 - float(data["safety_score"]))
     return max(MIN_COST_FACTOR, factor)
 
 
@@ -59,4 +55,3 @@ def weighted_astar_path(
 
 def path_distance(graph: nx.MultiDiGraph, path: list[Hashable]) -> float:
     return float(nx.path_weight(graph, path, weight="length"))
-

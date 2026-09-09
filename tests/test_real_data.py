@@ -3,7 +3,9 @@
 from config.settings import SETTINGS
 from src.domain import RouteMode, RouteRequest
 from src.geocoding import SAMPLE_PLACES
+from src.indicators import real
 from src.indicators.real import (
+    RealPoint,
     attach_real_indicators,
     load_heating_road_names,
     load_real_points,
@@ -26,6 +28,9 @@ def test_processed_real_data_and_female_ginkgo_filter() -> None:
     safe_return = load_real_points("safe_return", central_seoul)
     assert len(safe_return) == 347
     assert all(not point.is_female_ginkgo for point in safe_return)
+    cctv = load_real_points("cctv", central_seoul)
+    assert cctv
+    assert all(not point.is_female_ginkgo for point in cctv)
 
 
 def test_real_indicators_are_normalized_on_every_edge() -> None:
@@ -42,6 +47,21 @@ def test_real_indicators_are_normalized_on_every_edge() -> None:
         ):
             assert 0.0 <= data[field] <= 1.0
     assert load_heating_road_names()
+
+
+def test_nearby_cctv_increases_safety_score(monkeypatch) -> None:
+    graph = load_sample_walking_graph().copy()
+    start, end, key = next(iter(graph.edges(keys=True)))
+    node = graph.nodes[start]
+    cctv = (RealPoint(node["y"], node["x"], "단속 CCTV"),)
+    monkeypatch.setattr(
+        real,
+        "load_real_points",
+        lambda dataset, bounds: cctv if dataset == "cctv" else (),
+    )
+    monkeypatch.setattr(real, "load_heating_road_names", lambda: frozenset())
+    scored = attach_real_indicators(graph)
+    assert scored.edges[start, end, key]["safety_score"] == 0.5
 
 
 def test_heating_road_name_changes_winter_edge_score() -> None:
@@ -87,6 +107,7 @@ def test_real_mode_routes_and_map_layers_when_osm_is_offline(monkeypatch) -> Non
     assert "실제 그늘막 · 경로 주변" in layer_names
     assert "실제 가로등 · 경로 주변" in layer_names
     assert "안심귀갓길 연계 시설 · 경로 주변" in layer_names
+    assert "불법주정차 단속 CCTV · 경로 주변" in layer_names
     assert "도로명으로 확인된 열선 구간" in layer_names
 
 

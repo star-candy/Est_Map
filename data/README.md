@@ -30,6 +30,7 @@
 | `shades.csv.gz` | 4,941 | 여름 그늘막 proxy |
 | `streetlights.csv.gz` | 19,316 | 안심 가로등·안전 proxy |
 | `safe_return.csv.gz` | 347 | 안심귀갓길 연계 시설 근접도 proxy |
+| `cctv.csv.gz` | 4,470 | 25개 구 불법주정차 단속 CCTV 근접도 proxy |
 | `heating.csv.gz` | 993 | OSM 도로명과 일치할 때 겨울 열선 점수 |
 | `bike_stations.csv.gz` | 2,789 | 정적 대여·반납 후보 위치 |
 
@@ -47,9 +48,26 @@ OSM edge를 붉은 선으로 표시한다. 이는 주소 범위의 정밀 지오
 도로명 기반 map matching 결과다.
 
 가로등 자료가 차로에 편중될 수 있어 안심 점수는 안심귀갓길 연계 시설 40m 이내
-근접도 55%와 가로등 25m 이내 밀도 45%를 결합한다. 첨부 SHP는 347개의 Point로,
+근접도 35%, 가로등 25m 이내 밀도 15%, 불법주정차 단속 CCTV 40m 이내 근접도
+50%를 결합한다. 첨부 SHP는 347개의 Point로,
 귀갓길 전체 선형이 아니라 연계 시설 위치다. 따라서 공식 안전도나 안전 보장을 뜻하지
 않는다. 결빙 위험은 고도·노면·기상 시계열이 준비될 때까지 0으로 둔다.
+
+### 불법주정차 단속 CCTV 위치정보
+
+- 제공처: 서울특별시 및 25개 자치구 / 서울 열린데이터광장
+- 데이터명·URL: `서울시 불법주정차/전용차로 위반 단속 CCTV 위치정보`,
+  https://data.seoul.go.kr/dataList/OA-20471/A/1/datasetView.do
+- 형식·인증: 자치구별 JSON Open API, `SEOUL_OPEN_API_KEY`, 요청당 최대 1,000건
+- 갱신: 분기 1회. 포털 확인 당시 데이터 갱신일 2026-07-01
+- 좌표·주요 컬럼: `LAT`, `LOT`, `CGG_CD`, `FIX_CCTV_ADDR`, `CRDN_BRNCH_NM`,
+  `GRNDS_SE`; 좌표는 서울 WGS84 범위로 검증해 사용
+- 라이선스: 공공누리 제1유형(출처표시)
+- 전처리: 25개 구 API pagination, `GRNDS_SE`가 불법주정차 단속인 행만 선택,
+  좌표/서울 범위 검증 후 `cctv.csv.gz`로 통합
+- 갱신 명령: `python -m scripts.fetch_cctv_data`
+- 지원/한계: CCTV 40m 이내 edge에 관측 시설 근접도만 부여한다. 촬영 범위, 가동
+  상태, 영상 내용은 제공되지 않으며 CCTV 존재가 범죄 예방이나 보행 안전을 보장하지 않는다.
 
 ### 안심귀갓길 서비스 통합데이터
 
@@ -194,8 +212,8 @@ https://data.seoul.go.kr/dataList/OA-1325/S/1/datasetView.do 는 본문상 구�
 ## 실제 adapter 상태
 
 - `src/data_sources/base.py`: 공간자료·기상 공급자 인터페이스와 provenance
-- `src/data_sources/seoul.py`: 서울 API 클라이언트, CSV/GeoJSON 로더, 명시적 필드
-  매핑을 요구하는 따릉이 adapter
+- `src/data_sources/seoul.py`: 서울 API 클라이언트, 25개 구 CCTV 통합 adapter,
+  CSV/GeoJSON 로더, 명시적 필드 매핑을 요구하는 따릉이 adapter
 - `src/data_sources/kma.py`: 명세/operation 고정 전 필드를 추측하지 않는 KMA 경계
 - 실제 adapter는 앱 시작 시 자동 생성되지 않는다. 키/파일이 없으면 기존 샘플
   따릉이 공급자와 합성 지표가 계속 동작한다.

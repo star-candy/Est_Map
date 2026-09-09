@@ -16,7 +16,7 @@ class RouteMode(StrEnum):
             RouteMode.SUMMER: "그늘이 많은 길을 우선합니다.",
             RouteMode.AUTUMN: "은행나무 밀집 구간을 덜 지나도록 돕습니다.",
             RouteMode.WINTER: "결빙 위험을 줄이고 도로 열선 구간을 우선합니다.",
-            RouteMode.SAFETY: "안심귀갓길 연계 시설과 가로등이 가까운 길을 우선합니다.",
+            RouteMode.SAFETY: "단속 CCTV와 안심귀갓길 시설이 가까운 길을 우선합니다.",
         }[self]
 
 

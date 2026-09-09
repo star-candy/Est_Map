@@ -23,6 +23,7 @@ POINT_FILES = {
     "streetlights": "streetlights.csv.gz",
     "bikes": "bike_stations.csv.gz",
     "safe_return": "safe_return.csv.gz",
+    "cctv": "cctv.csv.gz",
 }
 
 
@@ -67,6 +68,9 @@ def load_real_points(
             elif dataset == "safe_return":
                 label = row["label"]
                 detail, female = "서울시 안심귀갓길 서비스 통합데이터", False
+            elif dataset == "cctv":
+                label = row["location"] or "불법주정차 단속 CCTV"
+                detail, female = row["address"], False
             else:
                 label, detail, female = row["id"], "가로등 위치", False
             points.append(RealPoint(latitude, longitude, label, detail, female))
@@ -130,11 +134,13 @@ def attach_real_indicators(graph: nx.MultiDiGraph) -> nx.MultiDiGraph:
     shade_points = load_real_points("shades", bounds)
     lights = load_real_points("streetlights", bounds)
     safe_return = load_real_points("safe_return", bounds)
+    cctv = load_real_points("cctv", bounds)
     tree_index = _tree(trees)
     ginkgo_index = _tree(female_ginkgo)
     shade_index = _tree(shade_points)
     light_index = _tree(lights)
     safe_return_index = _tree(safe_return)
+    cctv_index = _tree(cctv)
     heating_names = load_heating_road_names()
 
     for start, end, key, data in result.edges(keys=True, data=True):
@@ -144,8 +150,10 @@ def attach_real_indicators(graph: nx.MultiDiGraph) -> nx.MultiDiGraph:
         ginkgo = _near_count(ginkgo_index, edge, 18.0)
         light_count = _near_count(light_index, edge, 25.0)
         safe_return_count = _near_count(safe_return_index, edge, 40.0)
+        cctv_count = _near_count(cctv_index, edge, 40.0)
         light_score = normalize_indicator(light_count / 3.0)
         safe_return_score = normalize_indicator(safe_return_count)
+        cctv_score = normalize_indicator(cctv_count)
         values = {
             "shade_score": normalize_indicator(max(canopy / 4.0, shades)),
             "ginkgo_risk": normalize_indicator(ginkgo / 2.0),
@@ -153,8 +161,10 @@ def attach_real_indicators(graph: nx.MultiDiGraph) -> nx.MultiDiGraph:
             # 고도/노면/기상 시계열이 없는 상태에서 결빙을 임의 추정하지 않는다.
             "icing_risk": 0.0,
             "light_score": light_score,
-            # 공식 안전 보장을 뜻하지 않으며 두 관측 자료의 공간 근접도다.
-            "safety_score": normalize_indicator(0.55 * safe_return_score + 0.45 * light_score),
+            # 공식 안전 보장을 뜻하지 않으며 세 관측 자료의 공간 근접도다.
+            "safety_score": normalize_indicator(
+                0.35 * safe_return_score + 0.15 * light_score + 0.50 * cctv_score
+            ),
         }
         for field, value in values.items():
             result.edges[start, end, key][field] = value

@@ -80,7 +80,7 @@ def edge_comfort(data: Mapping[str, Any], mode: RouteMode) -> float:
         return 1.0 - float(data["ginkgo_risk"])
     if mode is RouteMode.WINTER:
         return 0.45 * float(data["heating_score"]) + 0.55 * (1.0 - float(data["icing_risk"]))
-    return 0.5 * (float(data["light_score"]) + float(data["safety_score"]))
+    return float(data["safety_score"])
 
 
 def path_comfort_score(graph: nx.MultiDiGraph, path: Sequence[Hashable], mode: RouteMode) -> float:

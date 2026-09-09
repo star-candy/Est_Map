@@ -23,6 +23,34 @@ from src.data_sources.base import (
 )
 from src.domain import BikeStation, Coordinates
 
+SEOUL_DISTRICT_CCTV_SERVICES = {
+    "종로구": "TbOpendataFixedcctvJN",
+    "중구": "TbOpendataFixedcctvJG",
+    "용산구": "TbOpendataFixedcctvYS",
+    "성동구": "TbOpendataFixedcctvSD",
+    "광진구": "TbOpendataFixedcctvGJ",
+    "동대문구": "TbOpendataFixedcctvDD",
+    "중랑구": "TbOpendataFixedcctvJR",
+    "성북구": "TbOpendataFixedcctvSB",
+    "강북구": "TbOpendataFixedcctvGB",
+    "도봉구": "TbOpendataFixedcctvDB",
+    "노원구": "TbOpendataFixedcctvNW",
+    "은평구": "TbOpendataFixedcctvEP",
+    "서대문구": "TbOpendataFixedcctvSM",
+    "마포구": "TbOpendataFixedcctvMP",
+    "양천구": "TbOpendataFixedcctvYC",
+    "강서구": "TbOpendataFixedcctvGS",
+    "구로구": "TbOpendataFixedcctvGR",
+    "금천구": "TbOpendataFixedcctvGC",
+    "영등포구": "TbOpendataFixedcctvYD",
+    "동작구": "TbOpendataFixedcctvDJ",
+    "관악구": "TbOpendataFixedcctvGA",
+    "서초구": "TbOpendataFixedcctvSC",
+    "강남구": "TbOpendataFixedcctvGN",
+    "송파구": "TbOpendataFixedcctvSP",
+    "강동구": "TbOpendataFixedcctvGD",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class SeoulOpenApiClient:
@@ -56,6 +84,52 @@ class SeoulOpenApiClient:
         if not isinstance(rows, list):
             raise DataSourceError("서울 API row 형식이 예상과 다릅니다.")
         return tuple(row for row in rows if isinstance(row, Mapping))
+
+    def fetch_all(self, service: str, page_size: int = 1000) -> tuple[Mapping[str, Any], ...]:
+        """서울 API의 1,000건 제한을 지키며 서비스 전체 행을 조회한다."""
+        rows: list[Mapping[str, Any]] = []
+        start = 1
+        while True:
+            page = self.fetch_page(service, start, start + page_size - 1)
+            rows.extend(page)
+            if len(page) < page_size:
+                return tuple(rows)
+            start += page_size
+
+
+@dataclass(frozen=True, slots=True)
+class SeoulIllegalParkingCctvAdapter:
+    """25개 자치구의 불법주정차 단속 고정형 CCTV 위치를 통합한다."""
+
+    client: SeoulOpenApiClient
+
+    def list_records(self) -> tuple[Mapping[str, Any], ...]:
+        records: list[Mapping[str, Any]] = []
+        for expected_district, service in SEOUL_DISTRICT_CCTV_SERVICES.items():
+            for row in self.client.fetch_all(service):
+                category = str(row.get("GRNDS_SE") or "").strip()
+                if "불법주정차" not in category:
+                    continue
+                try:
+                    latitude = float(row["LAT"])
+                    longitude = float(row["LOT"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if not (37.40 <= latitude <= 37.72 and 126.75 <= longitude <= 127.22):
+                    continue
+                records.append(
+                    {
+                        "district": str(row.get("CGG_CD") or expected_district).strip(),
+                        "address": str(row.get("FIX_CCTV_ADDR") or "").strip(),
+                        "location": str(row.get("CRDN_BRNCH_NM") or "").strip(),
+                        "category": category,
+                        "latitude": latitude,
+                        "longitude": longitude,
+                        "service": service,
+                        "is_sample": "false",
+                    }
+                )
+        return tuple(records)
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,7 +1,13 @@
 """합성 지표 결합과 정규화 테스트."""
 
+from src.domain import RouteMode
 from src.indicators.sample import load_sample_indicators
-from src.indicators.scoring import INDICATOR_FIELDS, attach_sample_indicators, normalize_indicator
+from src.indicators.scoring import (
+    INDICATOR_FIELDS,
+    attach_sample_indicators,
+    edge_comfort,
+    normalize_indicator,
+)
 from src.routing.graph import load_sample_walking_graph
 
 
@@ -23,3 +29,8 @@ def test_every_edge_receives_normalized_indicators() -> None:
         for field in INDICATOR_FIELDS:
             assert field in data
             assert 0.0 <= data[field] <= 1.0
+
+
+def test_safety_comfort_does_not_count_streetlights_twice() -> None:
+    data = {"light_score": 1.0, "safety_score": 0.4}
+    assert edge_comfort(data, RouteMode.SAFETY) == 0.4
