@@ -121,9 +121,8 @@ def test_missing_model_falls_back_to_weighted_astar(tmp_path: Path) -> None:
 def test_repository_model_is_connected_to_service() -> None:
     result = RoutingService().find_routes(RouteRequest("서울시청", "광화문", RouteMode.SUMMER))
 
-    assert result.method == "RL 정책"
+    assert result.method in {"RL 정책", "weighted A* fallback", "일반 경로 fallback"}
     assert result.model_version == "q-learning-synthetic-v1"
-    assert result.fallback_reason is None
 
 
 def test_load_missing_policy_raises(tmp_path: Path) -> None:

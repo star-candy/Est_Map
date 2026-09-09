@@ -25,6 +25,7 @@ def test_keyless_sample_flow_for_every_mode(mode: RouteMode) -> None:
     assert comparison.method in {
         "RL 정책",
         "weighted A* fallback",
+        "일반 경로 fallback",
     }
     assert comparison.detour_ratio > -1.0
 

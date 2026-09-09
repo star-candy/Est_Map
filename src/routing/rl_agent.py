@@ -6,7 +6,7 @@ import hashlib
 import json
 import random
 from collections.abc import Hashable, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -37,7 +37,7 @@ class TrainingConfig:
     epsilon_end: float = 0.03
     max_steps: int = 40
     random_seed: int = DEFAULT_RANDOM_SEED
-    max_detour_ratio: float = 0.25
+    max_detour_ratio: float | None = None
     evaluation_episodes: int = 200
 
 
@@ -167,8 +167,10 @@ class QLearningEnvironment:
         self.path.append(next_node)
         self.visited.add(next_node)
         reached_target = next_node == self.target
-        excessive = self.distance_travelled > self.baseline_distance * (
-            1.0 + self.config.max_detour_ratio
+        excessive = (
+            self.config.max_detour_ratio is not None
+            and self.distance_travelled
+            > self.baseline_distance * (1.0 + self.config.max_detour_ratio)
         )
         reached = reached_target and not excessive
         if reached:
@@ -333,11 +335,11 @@ def train_or_load_runtime_policy(
     model_directory: Path,
 ) -> tuple[InferenceResult, dict[str, Any]]:
     """실제 경로 corridor의 Q-table을 재사용하거나 재현 가능하게 학습한다."""
-    corridor_width = 450.0 if mode is RouteMode.WINTER else 200.0
+    corridor_width = 450.0
     corridor = build_route_corridor_graph(graph, baseline_path, buffer_m=corridor_width)
     fingerprint = graph_fingerprint(corridor)
-    # v3는 거리 비례 보상과 겨울 corridor 확대를 반영하므로 이전 캐시를 재사용하지 않는다.
-    model_path = model_directory / f"{fingerprint[:20]}-{mode.name.lower()}-v3.joblib"
+    # v6는 고정 우회율 제한 제거와 강화된 맞춤 지표 비용을 반영한다.
+    model_path = model_directory / f"{fingerprint[:20]}-{mode.name.lower()}-v7.joblib"
     if model_path.is_file():
         q_table, metadata = load_policy(model_path)
     else:
@@ -380,7 +382,8 @@ def infer_policy(
     if metadata.get("start_node") != str(start) or metadata.get("target_node") != str(target):
         return InferenceResult(None, "이 출발지·도착지 구간은 학습되지 않았습니다.")
 
-    config = TrainingConfig(**metadata["training_config"])
+    # 이전 저장 모델에 25% 제한이 있더라도 현재 추론에서는 적용하지 않는다.
+    config = replace(TrainingConfig(**metadata["training_config"]), max_detour_ratio=None)
     environment = QLearningEnvironment(graph, start, target, mode, baseline_distance, config)
     state = environment.reset()
     visited = {start}
@@ -410,7 +413,10 @@ def infer_policy(
         if done:
             if reached:
                 distance = path_distance(graph, environment.path)
-                if distance > baseline_distance * (1.0 + config.max_detour_ratio):
+                if (
+                    config.max_detour_ratio is not None
+                    and distance > baseline_distance * (1.0 + config.max_detour_ratio)
+                ):
                     return InferenceResult(None, "RL 후보가 내부 학습 거리 한도를 초과했습니다.")
                 return InferenceResult(environment.path.copy(), None)
             return InferenceResult(None, "RL 후보가 내부 학습 거리 한도를 초과했습니다.")

@@ -130,7 +130,7 @@ def _offline_database_path() -> Path:
 def _load_offline_bbox(west: float, south: float, east: float, north: float) -> nx.MultiDiGraph:
     graph = nx.MultiDiGraph(crs="EPSG:4326", source="OSM-PBF-offline")
     query = """
-        SELECT e.edge_id, e.u, e.v, e.length_m, e.name, e.highway,
+        SELECT e.edge_id, e.u, e.v, e.length_m, e.name, e.highway, e.osm_id,
                u.latitude, u.longitude, v.latitude, v.longitude
         FROM edge_bounds b
         JOIN edges e ON e.edge_id = b.edge_id
@@ -141,7 +141,7 @@ def _load_offline_bbox(west: float, south: float, east: float, north: float) -> 
     """
     with sqlite3.connect(f"file:{_offline_database_path()}?mode=ro", uri=True) as connection:
         rows = connection.execute(query, (west, east, south, north))
-        for edge_id, u, v, length, name, highway, u_lat, u_lon, v_lat, v_lon in rows:
+        for edge_id, u, v, length, name, highway, osm_id, u_lat, u_lon, v_lat, v_lon in rows:
             graph.add_node(u, y=u_lat, x=u_lon)
             graph.add_node(v, y=v_lat, x=v_lon)
             attributes = {
@@ -149,6 +149,7 @@ def _load_offline_bbox(west: float, south: float, east: float, north: float) -> 
                 "name": name or "",
                 "highway": highway or "",
                 "osm_edge_id": edge_id,
+                "osm_way_id": osm_id or "",
             }
             graph.add_edge(u, v, **attributes)
             graph.add_edge(v, u, **attributes)

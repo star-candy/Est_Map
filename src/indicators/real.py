@@ -101,15 +101,83 @@ def _graph_bounds(
     )
 
 
-def _tree(points: tuple[RealPoint, ...]) -> STRtree | None:
-    geometries = [transform(_TO_METERS.transform, Point(p.longitude, p.latitude)) for p in points]
-    return STRtree(geometries) if geometries else None
+def _physical_edge_id(start: object, end: object, data: dict) -> tuple[str, ...]:
+    """양방향으로 복제된 edge가 같은 지표를 공유하도록 물리 구간 ID를 만든다."""
+    osm_id = data.get("osm_edge_id")
+    if osm_id is not None:
+        return ("osm", str(osm_id))
+    sample_id = data.get("sample_edge_id")
+    if sample_id is not None:
+        return ("sample", str(sample_id))
+    return ("nodes", *sorted((repr(start), repr(end))))
 
 
-def _near_count(tree: STRtree | None, geometry, distance: float) -> int:
-    if tree is None:
-        return 0
-    return len(tree.query(geometry, predicate="dwithin", distance=distance))
+def _road_group_id(edge_id: tuple[str, ...], data: dict) -> tuple[str, ...]:
+    """한 시설의 영향이 이어질 동일 OSM way 또는 샘플 도로 그룹을 식별한다."""
+    osm_way = data.get("osm_way_id", data.get("osmid"))
+    if isinstance(osm_way, list):
+        osm_way = osm_way[0] if osm_way else None
+    if osm_way not in (None, ""):
+        return ("osm-way", str(osm_way))
+    sample_id = data.get("sample_edge_id")
+    if sample_id is not None:
+        return ("sample", str(sample_id))
+    return edge_id
+
+
+def _build_edge_index(
+    graph: nx.MultiDiGraph,
+) -> tuple[list, list[tuple[str, ...]], list[tuple[str, ...]], STRtree | None]:
+    """데이터셋들이 함께 재사용할 물리 도로 공간 인덱스를 만든다."""
+    geometries = []
+    edge_ids: list[tuple[str, ...]] = []
+    road_groups: list[tuple[str, ...]] = []
+    seen: set[tuple[str, ...]] = set()
+    for start, end, data in graph.edges(data=True):
+        edge_id = _physical_edge_id(start, end, data)
+        if edge_id in seen:
+            continue
+        seen.add(edge_id)
+        geometries.append(transform(_TO_METERS.transform, _edge_geometry(graph, start, end, data)))
+        edge_ids.append(edge_id)
+        road_groups.append(_road_group_id(edge_id, data))
+    return geometries, edge_ids, road_groups, STRtree(geometries) if geometries else None
+
+
+def _assign_points_to_nearest_edges(
+    edge_index: tuple[
+        list, list[tuple[str, ...]], list[tuple[str, ...]], STRtree | None
+    ],
+    points: tuple[RealPoint, ...],
+    max_distance_m: float,
+    max_road_groups: int = 1,
+) -> dict[tuple[str, ...], int]:
+    """가장 가까운 도로를 고른 뒤 같은 OSM way의 인접 구간에만 영향을 확장한다."""
+    geometries, edge_ids, road_groups, tree = edge_index
+    if tree is None or not points:
+        return {}
+
+    counts: dict[tuple[str, ...], int] = {}
+    for point in points:
+        projected = transform(_TO_METERS.transform, Point(point.longitude, point.latitude))
+        candidates = tree.query(projected, predicate="dwithin", distance=max_distance_m)
+        if len(candidates) == 0:
+            continue
+        ranked = sorted(candidates, key=lambda index: geometries[int(index)].distance(projected))
+        selected_groups: list[tuple[str, ...]] = []
+        for index in ranked:
+            group = road_groups[int(index)]
+            if group not in selected_groups:
+                selected_groups.append(group)
+            if len(selected_groups) >= max_road_groups:
+                break
+        for index in candidates:
+            position = int(index)
+            if road_groups[position] not in selected_groups:
+                continue
+            edge_id = edge_ids[position]
+            counts[edge_id] = counts.get(edge_id, 0) + 1
+    return counts
 
 
 def _edge_has_heating(edge_name: object, heating_names: frozenset[str]) -> bool:
@@ -135,22 +203,29 @@ def attach_real_indicators(graph: nx.MultiDiGraph) -> nx.MultiDiGraph:
     lights = load_real_points("streetlights", bounds)
     safe_return = load_real_points("safe_return", bounds)
     cctv = load_real_points("cctv", bounds)
-    tree_index = _tree(trees)
-    ginkgo_index = _tree(female_ginkgo)
-    shade_index = _tree(shade_points)
-    light_index = _tree(lights)
-    safe_return_index = _tree(safe_return)
-    cctv_index = _tree(cctv)
+    # 넓은 buffer로 인접 평행도로까지 중복 점수를 주지 않고 가장 가까운 도로에만
+    # 시설을 귀속한다. 거리는 원본 좌표 오차와 일반적인 도로 폭만 허용하는 수준이다.
+    edge_index = _build_edge_index(result)
+    # 가로수 좌표는 차도 중심선과 평행 보행로 사이에 놓이는 경우가 많아 가까운
+    # 두 도로 그룹까지 반영한다. 시설물은 가장 가까운 한 그룹만 사용한다.
+    tree_counts = _assign_points_to_nearest_edges(edge_index, trees, 15.0, max_road_groups=2)
+    ginkgo_counts = _assign_points_to_nearest_edges(
+        edge_index, female_ginkgo, 18.0, max_road_groups=2
+    )
+    shade_counts = _assign_points_to_nearest_edges(edge_index, shade_points, 35.0)
+    light_counts = _assign_points_to_nearest_edges(edge_index, lights, 25.0, max_road_groups=2)
+    safe_return_counts = _assign_points_to_nearest_edges(edge_index, safe_return, 40.0)
+    cctv_counts = _assign_points_to_nearest_edges(edge_index, cctv, 40.0)
     heating_names = load_heating_road_names()
 
     for start, end, key, data in result.edges(keys=True, data=True):
-        edge = transform(_TO_METERS.transform, _edge_geometry(result, start, end, data))
-        canopy = _near_count(tree_index, edge, 15.0)
-        shades = _near_count(shade_index, edge, 35.0)
-        ginkgo = _near_count(ginkgo_index, edge, 18.0)
-        light_count = _near_count(light_index, edge, 25.0)
-        safe_return_count = _near_count(safe_return_index, edge, 40.0)
-        cctv_count = _near_count(cctv_index, edge, 40.0)
+        edge_id = _physical_edge_id(start, end, data)
+        canopy = tree_counts.get(edge_id, 0)
+        shades = shade_counts.get(edge_id, 0)
+        ginkgo = ginkgo_counts.get(edge_id, 0)
+        light_count = light_counts.get(edge_id, 0)
+        safe_return_count = safe_return_counts.get(edge_id, 0)
+        cctv_count = cctv_counts.get(edge_id, 0)
         light_score = normalize_indicator(light_count / 3.0)
         safe_return_score = normalize_indicator(safe_return_count)
         cctv_score = normalize_indicator(cctv_count)

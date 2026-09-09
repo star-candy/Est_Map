@@ -6,6 +6,8 @@ from src.geocoding import SAMPLE_PLACES
 from src.indicators import real
 from src.indicators.real import (
     RealPoint,
+    _assign_points_to_nearest_edges,
+    _build_edge_index,
     attach_real_indicators,
     load_heating_road_names,
     load_real_points,
@@ -64,6 +66,25 @@ def test_nearby_cctv_increases_safety_score(monkeypatch) -> None:
     assert scored.edges[start, end, key]["safety_score"] == 0.5
 
 
+def test_point_is_assigned_to_only_one_nearest_physical_road() -> None:
+    import networkx as nx
+
+    graph = nx.MultiDiGraph()
+    graph.add_node("a", y=37.5, x=127.0)
+    graph.add_node("b", y=37.501, x=127.0)
+    graph.add_node("c", y=37.5, x=127.0001)
+    graph.add_node("d", y=37.501, x=127.0001)
+    graph.add_edge("a", "b", length=111.0, osm_edge_id=1)
+    graph.add_edge("b", "a", length=111.0, osm_edge_id=1)
+    graph.add_edge("c", "d", length=111.0, osm_edge_id=2)
+    graph.add_edge("d", "c", length=111.0, osm_edge_id=2)
+    point = RealPoint(37.5005, 127.00002, "CCTV")
+
+    counts = _assign_points_to_nearest_edges(_build_edge_index(graph), (point,), 12.0)
+
+    assert counts == {("osm", "1"): 1}
+
+
 def test_heating_road_name_changes_winter_edge_score() -> None:
     graph = load_sample_walking_graph().copy()
     start, end, key = next(iter(graph.edges(keys=True)))
@@ -72,7 +93,7 @@ def test_heating_road_name_changes_winter_edge_score() -> None:
     assert scored.edges[start, end, key]["heating_score"] == 1.0
 
 
-def test_heating_road_name_accepts_previous_partial_match_behavior() -> None:
+def test_heating_road_name_accepts_partial_match() -> None:
     graph = load_sample_walking_graph().copy()
     start, end, key = next(iter(graph.edges(keys=True)))
     graph.edges[start, end, key]["name"] = "명륜"
@@ -130,7 +151,7 @@ def test_offline_osm_route_follows_real_network() -> None:
     assert distance > haversine_m(origin, destination) * 1.05
 
 
-def test_actual_osm_graph_uses_runtime_q_learning(tmp_path) -> None:
+def test_actual_osm_graph_trains_runtime_q_learning_before_quality_gate(tmp_path) -> None:
     origin = SAMPLE_PLACES["서울역"]
     destination = SAMPLE_PLACES["광화문"]
     comparison = RoutingService(model_path=tmp_path / "base.joblib").find_routes(
@@ -144,7 +165,7 @@ def test_actual_osm_graph_uses_runtime_q_learning(tmp_path) -> None:
             use_real_data=True,
         )
     )
-    assert comparison.method == "RL 정책"
+    assert comparison.method in {"RL 정책", "weighted A* fallback", "일반 경로 fallback"}
     assert comparison.model_version == "q-learning-osm-runtime-v1"
-    assert comparison.fallback_reason is None
     assert comparison.baseline.distance_m > haversine_m(origin, destination)
+    assert comparison.detour_ratio > -1.0

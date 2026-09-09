@@ -23,6 +23,20 @@ from src.routing.weighted import (
 )
 
 WALKING_SPEED_M_PER_MIN = 75.0
+MIN_SCORE_IMPROVEMENT = 1e-6
+
+
+def candidate_improves_mode(
+    baseline_score: float,
+    baseline_distance: float,
+    candidate_score: float,
+    candidate_distance: float,
+) -> bool:
+    """우회율 상한 없이 지표 개선 후보를 채택하고, 동점이면 더 짧은 경로만 채택한다."""
+    return candidate_score > baseline_score + MIN_SCORE_IMPROVEMENT or (
+        candidate_score >= baseline_score - MIN_SCORE_IMPROVEMENT
+        and candidate_distance <= baseline_distance
+    )
 
 
 class RouteServiceError(RuntimeError):
@@ -171,19 +185,53 @@ class RoutingService:
                     graph_baseline_distance,
                 )
             model_version = str(metadata["model_version"])
-            candidate_nodes = inference.path
+            rl_nodes = inference.path
             rl_reason = inference.reason
         except Exception:
-            candidate_nodes = None
+            rl_nodes = None
             rl_reason = "RL 모델 정책을 적용하지 못해 weighted A* 맞춤 경로를 사용했습니다."
 
-        if candidate_nodes is None:
-            method = "weighted A* fallback"
-            try:
-                candidate_nodes = weighted_astar_path(graph, origin, destination, request.mode)
-            except Exception as exc:
+        try:
+            weighted_nodes = weighted_astar_path(graph, origin, destination, request.mode)
+        except Exception as exc:
+            if rl_nodes is None:
                 raise RouteServiceError("맞춤 보행 경로를 계산하지 못했습니다.") from exc
-        candidate_distance = path_distance(graph, candidate_nodes)
+            weighted_nodes = None
+
+        # RL을 항상 먼저 실행하되 결과를 곧바로 확정하지 않는다. 두 알고리즘의
+        # 완성 경로를 같은 지표로 비교해 쾌적 점수가 높은 후보를 최종 선택한다.
+        options: list[tuple[float, float, int, str, list[Hashable]]] = []
+        for option_method, nodes in (
+            ("RL 정책", rl_nodes),
+            ("weighted A* fallback", weighted_nodes),
+        ):
+            if nodes is None:
+                continue
+            distance = path_distance(graph, nodes)
+            score = path_comfort_score(graph, nodes, request.mode)
+            if candidate_improves_mode(
+                baseline.comfort_score,
+                graph_baseline_distance,
+                score,
+                distance,
+            ):
+                options.append(
+                    (score, -distance, int(option_method == "RL 정책"), option_method, nodes)
+                )
+
+        if options:
+            _, neg_distance, _, method, candidate_nodes = max(options)
+            candidate_distance = -neg_distance
+            if method != "RL 정책" and rl_nodes is not None:
+                rl_reason = "weighted A* 후보의 맞춤 지표 점수가 RL 후보보다 높았습니다."
+        else:
+            candidate_nodes = baseline_nodes
+            candidate_distance = graph_baseline_distance
+            method = "일반 경로 fallback"
+            rl_reason = (
+                "RL과 weighted A* 후보 모두 맞춤 지표가 개선되지 않아 "
+                "일반 보행 경로를 사용했습니다."
+            )
 
         optimized = _make_path(graph, candidate_nodes, candidate_distance, request)
         detour_ratio = (
