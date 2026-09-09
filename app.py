@@ -36,6 +36,7 @@ from src.ui.components import (
     render_data_badge,
     render_mode_help,
     render_monthly_report,
+    render_responsible_use_notice,
     render_restaurants,
     render_results,
 )
@@ -64,6 +65,7 @@ def main() -> None:
     )
     st.title(f"{SETTINGS.app_icon} {SETTINGS.app_title}")
     st.caption("서울의 일반 최단 보행 경로와 계절·안심 맞춤 경로를 비교하는 MVP입니다.")
+    render_responsible_use_notice()
     render_data_badge()
 
     with st.form("route_search"):
@@ -121,6 +123,12 @@ def main() -> None:
                 except RouteServiceError as exc:
                     st.session_state.route_comparison = None
                     st.error(str(exc))
+                except Exception:
+                    st.session_state.route_comparison = None
+                    st.error(
+                        "예상하지 못한 오류로 경로를 만들지 못했습니다. 잠시 후 다시 "
+                        "시도하거나 좌표 직접 입력을 사용해 주세요."
+                    )
 
     comparison = st.session_state.route_comparison
     restaurants = st.session_state.get("restaurants", ())
@@ -259,7 +267,10 @@ def main() -> None:
                 with st.chat_message("assistant"):
                     st.markdown(answer)
             except BriefingError as exc:
-                st.warning(f"{exc} 기본 템플릿 리포트는 계속 사용할 수 있습니다.")
+                st.warning(
+                    f"{exc} 잠시 후 다시 질문해 주세요. 기본 템플릿 리포트는 계속 "
+                    "사용할 수 있습니다."
+                )
     else:
         st.caption(
             "GEMINI_API_KEY가 없어 계산값 기반 기본 템플릿을 사용합니다. "

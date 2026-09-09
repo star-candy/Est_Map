@@ -106,7 +106,9 @@ class GoogleRestaurantProvider:
                 for place in places
             )
         except (requests.RequestException, KeyError, TypeError, ValueError) as exc:
-            raise RestaurantSearchError("Google 음식점 검색에 실패했습니다.") from exc
+            raise RestaurantSearchError(
+                "Google 맛집 검색에 실패했습니다. 잠시 후 다시 시도하거나 API 설정을 확인하세요."
+            ) from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,7 +146,9 @@ class TmapRestaurantProvider:
                 for poi in pois
             )
         except (requests.RequestException, KeyError, TypeError, ValueError) as exc:
-            raise RestaurantSearchError("TMAP 음식점 검색에 실패했습니다.") from exc
+            raise RestaurantSearchError(
+                "TMAP 맛집 검색에 실패했습니다. 잠시 후 다시 시도하거나 API 설정을 확인하세요."
+            ) from exc
 
 
 def find_route_restaurants(

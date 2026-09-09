@@ -2,6 +2,8 @@
 
 경로가 생성되는 전체 과정과 강화학습의 상태·행동·보상·fallback은
 [`docs/route-generation.md`](docs/route-generation.md)에서 설명합니다.
+개인정보 처리, AI 오류·편향과 복구 안내 점검 결과는
+[`docs/responsible-ai-checklist.md`](docs/responsible-ai-checklist.md)에 기록했습니다.
 
 서울 안에서 일반 최단 보행 경로와 계절·안심 지표를 반영한 맞춤 경로를 비교하는
 Streamlit MVP입니다. OpenStreetMap 부분 그래프에서 tabular Q-learning 정책을 학습해

@@ -388,7 +388,7 @@ def infer_policy(
         actions = environment.actions()
         learned = q_table.get(state)
         if not actions or not learned or not any(action in learned for action in actions):
-            return InferenceResult(None, "미학습 상태를 만나 정책 추론을 중단했습니다.")
+            return InferenceResult(None, "현재 위치에 학습된 RL 행동이 없어 후보에서 제외했습니다.")
         unvisited_actions = [
             action
             for action in actions
@@ -411,7 +411,7 @@ def infer_policy(
             if reached:
                 distance = path_distance(graph, environment.path)
                 if distance > baseline_distance * (1.0 + config.max_detour_ratio):
-                    return InferenceResult(None, "RL 경로가 최대 우회율을 초과했습니다.")
+                    return InferenceResult(None, "RL 후보가 내부 학습 거리 한도를 초과했습니다.")
                 return InferenceResult(environment.path.copy(), None)
-            return InferenceResult(None, "RL 경로가 과도하게 우회해 목적지에 도달하지 못했습니다.")
-    return InferenceResult(None, "RL 정책이 최대 이동 횟수 안에 목적지에 도달하지 못했습니다.")
+            return InferenceResult(None, "RL 후보가 내부 학습 거리 한도를 초과했습니다.")
+    return InferenceResult(None, "RL 후보가 내부 학습 이동 횟수 안에 완성되지 않았습니다.")

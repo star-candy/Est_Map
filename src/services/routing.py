@@ -31,9 +31,9 @@ class RouteServiceError(RuntimeError):
 
 def _explanation(request: RouteRequest, baseline_score: float, optimized_score: float) -> str:
     focus = {
-        "여름": "그늘·수관 proxy가 높은 구간",
+        "여름": "가로수와 그늘막이 많은 구간",
         "가을": "은행나무 암나무 위험이 낮은 구간",
-        "겨울": "열선 proxy가 높고 결빙 위험이 낮은 구간",
+        "겨울": "도로 열선 설치 구간을 지나고 결빙 위험 지표가 낮은 구간",
         "안심": "안심귀갓길 연계 시설과 가로등이 가까운 구간",
     }[request.mode.value]
     change = optimized_score - baseline_score
@@ -112,13 +112,12 @@ class RoutingService:
             try:
                 graph = load_offline_walking_graph(origin, destination)
                 source = "오프라인 OpenStreetMap PBF 보행 그래프와 합성 공간 지표"
-            except Exception as offline_error:
+            except Exception:
                 try:
                     graph = load_osm_walking_graph(origin, destination)
                     source = "온라인 OpenStreetMap 보행 그래프와 합성 공간 지표"
                     notices.append(
-                        "오프라인 보행망을 사용할 수 없어 온라인 연결을 사용했습니다: "
-                        f"{offline_error}"
+                        "오프라인 보행망을 사용할 수 없어 온라인 OSM 연결을 사용했습니다."
                     )
                 except Exception as online_error:
                     raise RouteServiceError(
@@ -132,7 +131,9 @@ class RoutingService:
                 graph = attach_real_indicators(graph)
                 source = source.replace("합성 공간 지표", "서울 공공데이터 공간 지표")
             except (FileNotFoundError, ValueError) as exc:
-                raise RouteServiceError(f"서울 공공데이터를 처리하지 못했습니다: {exc}") from exc
+                raise RouteServiceError(
+                    "서울 공공데이터를 처리하지 못했습니다. 전처리 파일을 확인해 주세요."
+                ) from exc
         else:
             graph = attach_sample_indicators(graph)
         try:
@@ -172,9 +173,9 @@ class RoutingService:
             model_version = str(metadata["model_version"])
             candidate_nodes = inference.path
             rl_reason = inference.reason
-        except Exception as exc:
+        except Exception:
             candidate_nodes = None
-            rl_reason = f"RL 모델을 사용할 수 없습니다: {exc}"
+            rl_reason = "RL 모델 정책을 적용하지 못해 weighted A* 맞춤 경로를 사용했습니다."
 
         if candidate_nodes is None:
             method = "weighted A* fallback"

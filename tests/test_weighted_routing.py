@@ -60,3 +60,11 @@ def test_every_mode_returns_comparison_within_detour_limit(mode: RouteMode) -> N
     assert 0.0 <= comparison.baseline.comfort_score <= 100.0
     assert 0.0 <= comparison.optimized.comfort_score <= 100.0
     assert comparison.explanation
+
+
+def test_winter_explanation_uses_plain_korean_instead_of_proxy() -> None:
+    comparison = RoutingService().find_routes(
+        RouteRequest("서울시청", "광화문", RouteMode.WINTER)
+    )
+    assert "도로 열선 설치 구간" in comparison.explanation
+    assert "proxy" not in comparison.explanation

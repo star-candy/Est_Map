@@ -87,7 +87,7 @@ def test_unlearned_policy_inference_fails_safely() -> None:
     )
 
     assert result.path is None
-    assert "미학습" in str(result.reason)
+    assert "학습된 RL 행동" in str(result.reason)
 
 
 def test_graph_mismatch_inference_fails_safely() -> None:

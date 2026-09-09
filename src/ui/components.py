@@ -20,10 +20,29 @@ def render_data_badge() -> None:
     )
 
 
+def render_responsible_use_notice() -> None:
+    with st.expander("개인정보·외부 API·AI 결과 안내", expanded=False):
+        st.markdown(
+            """
+- 경로 검색에는 위치 확인에 필요한 **출발지와 도착지**만 입력하세요. 주민등록번호,
+  전화번호, 이름 등 개인식별정보는 입력하지 마세요.
+- 입력 주소는 좌표 변환을 위해 Nominatim으로 전송됩니다. 좌표 직접 입력을 선택할 수
+  있습니다. 경로 전체와 정밀 좌표는 월간 기록에 저장하지 않습니다.
+- 맛집 버튼을 누르면 맞춤 경로의 출발·중간·도착 주변 좌표가 TMAP과 Google에
+  전송됩니다. 택시 대체를 확인하면 출발·도착 좌표가 TMAP 요금 조회에 사용됩니다.
+- Gemini 이동 코치에는 월간 집계와 대화 내용만 전달되며 주소와 경로는 보내지 않습니다.
+- 맞춤 경로와 RL 정책은 공공데이터 기반 참고 결과입니다. 데이터 누락과 지역별 시설
+  밀도 차이로 잘못되거나 편향된 결과가 나올 수 있으며 안전을 보장하지 않습니다.
+"""
+        )
+
+
 def render_mode_help(mode: RouteMode) -> None:
     st.caption(mode.description)
-    if mode in {RouteMode.WINTER, RouteMode.SAFETY}:
-        st.caption("이 경로 정보는 참고용이며 공식 안전 경로가 아닙니다.")
+    st.caption(
+        "AI·공간지표 추천은 참고용입니다. 누락되거나 오래된 데이터로 잘못된 결과가 "
+        "나올 수 있으며 공식 안전 경로가 아닙니다."
+    )
 
 
 def render_results(comparison: RouteComparison | None) -> None:
@@ -60,7 +79,13 @@ def render_results(comparison: RouteComparison | None) -> None:
     if comparison.model_version:
         st.caption(f"로드된 RL 모델: {comparison.model_version}")
     if comparison.fallback_reason:
-        st.warning(comparison.fallback_reason)
+        if comparison.method == "weighted A* fallback":
+            st.info(
+                "맞춤 경로는 weighted A*로 정상 생성되었습니다. "
+                f"RL 후보 제외 사유: {comparison.fallback_reason}"
+            )
+        else:
+            st.warning(comparison.fallback_reason)
     if comparison.notice:
         st.warning(comparison.notice)
 
