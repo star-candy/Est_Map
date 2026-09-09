@@ -4,6 +4,8 @@
 [`docs/route-generation.md`](docs/route-generation.md)에서 설명합니다.
 개인정보 처리, AI 오류·편향과 복구 안내 점검 결과는
 [`docs/responsible-ai-checklist.md`](docs/responsible-ai-checklist.md)에 기록했습니다.
+AI 적용 기능, 사용 모델, 외부 서비스와 구현 도구는
+[`docs/ai-external-services-tools.md`](docs/ai-external-services-tools.md)에 정리했습니다.
 
 서울 안에서 일반 최단 보행 경로와 계절·안심 지표를 반영한 맞춤 경로를 비교하는
 Streamlit MVP입니다. OpenStreetMap 부분 그래프에서 tabular Q-learning 정책을 학습해

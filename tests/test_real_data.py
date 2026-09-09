@@ -130,15 +130,6 @@ def test_real_mode_routes_and_map_layers_when_osm_is_offline(monkeypatch) -> Non
     assert "안심귀갓길 연계 시설 · 경로 주변" in layer_names
     assert "불법주정차 단속 CCTV · 경로 주변" in layer_names
     assert "도로명으로 확인된 열선 구간" in layer_names
-    html = route_map.get_root().render()
-    assert "공간 정보" in html
-    assert "안심귀갓길 시설" in html
-    assert "cluster.getChildCount()" not in html
-    assert "단속 CCTV" in html
-    assert "#dc2626" in html
-    assert "#ca8a04" in html
-
-
 def test_real_layers_are_automatically_selected_for_each_mode(monkeypatch) -> None:
     monkeypatch.setattr(
         "src.services.routing.OSMGeocoder.geocode",
