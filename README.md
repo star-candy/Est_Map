@@ -1,5 +1,8 @@
 # 서울 쾌적 경로 MVP
 
+경로가 생성되는 전체 과정과 강화학습의 상태·행동·보상·fallback은
+[`docs/route-generation.md`](docs/route-generation.md)에서 설명합니다.
+
 서울 안에서 일반 최단 보행 경로와 계절·안심 지표를 반영한 맞춤 경로를 비교하는
 Streamlit MVP입니다. 합성 부분 그래프에서 실제 episode로 학습한
 tabular Q-learning 정책을 우선 사용하고, 적용할 수 없으면 weighted A*로 전환합니다.
