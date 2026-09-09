@@ -96,7 +96,5 @@ class MonthlyReportStore:
 
     def previous_month_summary(self, month: str) -> MonthlySummary:
         year, month_number = (int(part) for part in month.split("-"))
-        previous = (
-            f"{year - 1}-12" if month_number == 1 else f"{year}-{month_number - 1:02d}"
-        )
+        previous = f"{year - 1}-12" if month_number == 1 else f"{year}-{month_number - 1:02d}"
         return self.monthly_summary(previous)

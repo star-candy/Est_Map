@@ -18,23 +18,17 @@ def test_shortest_path_uses_edge_length() -> None:
     graph.add_edge("b", "c", length=150.0)
     graph.add_edge("a", "c", length=400.0)
 
-    path, distance = shortest_path(
-        graph, Coordinates(37.5, 127.0), Coordinates(37.52, 127.02)
-    )
+    path, distance = shortest_path(graph, Coordinates(37.5, 127.0), Coordinates(37.52, 127.02))
 
     assert path == ["a", "b", "c"]
     assert distance == pytest.approx(250.0)
 
 
 def test_sample_service_always_returns_route() -> None:
-    comparison = RoutingService().find_routes(
-        RouteRequest("서울역", "광화문", RouteMode.SUMMER)
-    )
+    comparison = RoutingService().find_routes(RouteRequest("서울역", "광화문", RouteMode.SUMMER))
 
     assert comparison.baseline.distance_m > 0
-    assert comparison.baseline.duration_min == pytest.approx(
-        comparison.baseline.distance_m / 75.0
-    )
+    assert comparison.baseline.duration_min == pytest.approx(comparison.baseline.distance_m / 75.0)
     assert len(comparison.optimized.path) >= 2
     assert comparison.is_sample is True
 

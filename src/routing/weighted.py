@@ -10,7 +10,6 @@ from src.routing.baseline import RoutingError, nearest_node
 from src.routing.graph import haversine_m
 
 MIN_COST_FACTOR = 0.20
-DEFAULT_MAX_DETOUR_RATIO = 0.25
 
 
 def mode_cost_factor(data: dict[str, Any], mode: RouteMode) -> float:
@@ -19,7 +18,7 @@ def mode_cost_factor(data: dict[str, Any], mode: RouteMode) -> float:
     elif mode is RouteMode.AUTUMN:
         factor = 1.0 + 0.45 * float(data["ginkgo_risk"])
     elif mode is RouteMode.WINTER:
-        factor = 1.0 + 0.55 * float(data["icing_risk"]) - 0.30 * float(data["heating_score"])
+        factor = 1.0 + 0.65 * float(data["icing_risk"]) - 0.65 * float(data["heating_score"])
     else:
         factor = (
             1.0
@@ -61,22 +60,3 @@ def weighted_astar_path(
 def path_distance(graph: nx.MultiDiGraph, path: list[Hashable]) -> float:
     return float(nx.path_weight(graph, path, weight="length"))
 
-
-def enforce_detour_limit(
-    baseline_path: list[Hashable],
-    baseline_distance: float,
-    candidate_path: list[Hashable],
-    candidate_distance: float,
-    max_detour_ratio: float = DEFAULT_MAX_DETOUR_RATIO,
-) -> tuple[list[Hashable], float, str | None]:
-    if baseline_distance <= 0:
-        reason = "일반 경로 거리가 0이어서 일반 경로를 사용했습니다."
-        return baseline_path, baseline_distance, reason
-    detour_ratio = candidate_distance / baseline_distance - 1.0
-    if detour_ratio > max_detour_ratio:
-        reason = (
-            f"맞춤 경로가 최대 우회율 {max_detour_ratio:.0%}를 초과해 "
-            "일반 경로를 사용했습니다."
-        )
-        return baseline_path, baseline_distance, reason
-    return candidate_path, candidate_distance, None

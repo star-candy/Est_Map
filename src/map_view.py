@@ -6,7 +6,7 @@ import folium
 from folium.plugins import FastMarkerCluster
 
 from config.settings import Settings
-from src.domain import RouteComparison, RouteMode
+from src.domain import Restaurant, RouteComparison, RouteMode
 from src.indicators.real import load_real_points
 from src.indicators.sample import load_sample_indicators
 
@@ -59,8 +59,9 @@ def _add_indicator_layers(map_view: folium.Map, mode: RouteMode) -> None:
         group.add_to(map_view)
 
 
-def _add_legend(map_view: folium.Map, mode: RouteMode) -> None:
+def _add_legend(map_view: folium.Map, mode: RouteMode, is_sample: bool) -> None:
     optimized_color = MODE_COLORS[mode]
+    data_label = "합성 공간 지표" if is_sample else "서울 공공데이터 공간 지표"
     legend = f"""
     <div style="position:fixed; bottom:30px; left:30px; z-index:9999; background:#ffffff;
       color:#111827 !important; padding:10px 12px; border:1px solid #aaa;
@@ -68,7 +69,7 @@ def _add_legend(map_view: folium.Map, mode: RouteMode) -> None:
       <b>경로 범례</b><br>
       <span style="color:#64748b">━━</span> 일반 최단 경로<br>
       <span style="color:{optimized_color}">━━</span> {mode.value} 맞춤 경로<br>
-      <small>공간 지표는 모두 합성 데이터</small>
+      <small>{data_label}</small>
     </div>
     """
     map_view.get_root().html.add_child(folium.Element(legend))
@@ -91,6 +92,7 @@ def _add_real_layers(map_view: folium.Map, comparison: RouteComparison) -> None:
         ("trees", "은행나무 암나무", True),
         ("shades", "실제 그늘막", False),
         ("streetlights", "실제 가로등", False),
+        ("safe_return", "안심귀갓길 연계 시설", False),
         ("bikes", "실제 따릉이 대여소(정적)", False),
     )
     for dataset, name, female_only in layers:
@@ -103,21 +105,24 @@ def _add_real_layers(map_view: folium.Map, comparison: RouteComparison) -> None:
             name=name,
         ).add_to(group)
         group.add_to(map_view)
-    notice_group = folium.FeatureGroup(name="도로 열선 자료 안내", show=False, overlay=True)
-    folium.Marker(
-        [37.5665, 126.9780],
-        tooltip="도로 열선 원본은 좌표 미제공",
-        popup=(
-            "열선 993건은 설치구간 문자열만 제공합니다. 지도에 임의 위치를 만들지 않고 "
-            "OSM 도로명이 일치하는 보행 edge에만 heating_score를 적용합니다."
-        ),
-        icon=folium.Icon(color="orange", icon="info-sign"),
-    ).add_to(notice_group)
-    notice_group.add_to(map_view)
+    heating_group = folium.FeatureGroup(
+        name="도로명으로 확인된 열선 구간", show=comparison.mode is RouteMode.WINTER, overlay=True
+    )
+    for segment in comparison.heating_segments:
+        folium.PolyLine(
+            [(point.latitude, point.longitude) for point in segment],
+            color="#ef4444",
+            weight=7,
+            opacity=0.75,
+            tooltip="원본 설치구간과 OSM 도로명이 일치한 열선 구간",
+        ).add_to(heating_group)
+    heating_group.add_to(map_view)
 
 
 def create_route_map(
-    settings: Settings, comparison: RouteComparison | None = None
+    settings: Settings,
+    comparison: RouteComparison | None = None,
+    restaurants: tuple[Restaurant, ...] = (),
 ) -> folium.Map:
     map_view = folium.Map(
         location=[settings.default_latitude, settings.default_longitude],
@@ -164,7 +169,17 @@ def create_route_map(
         _add_real_layers(map_view, comparison)
     else:
         _add_indicator_layers(map_view, comparison.mode)
-    _add_legend(map_view, comparison.mode)
+    restaurant_group = folium.FeatureGroup(name="경로 주변 맛집", show=True, overlay=True)
+    for restaurant in restaurants:
+        popup = f"{restaurant.name}<br>{restaurant.address}<br>출처: {restaurant.provider}"
+        folium.Marker(
+            [restaurant.coordinates.latitude, restaurant.coordinates.longitude],
+            tooltip=restaurant.name,
+            popup=popup,
+            icon=folium.Icon(color="red", icon="cutlery", prefix="fa"),
+        ).add_to(restaurant_group)
+    restaurant_group.add_to(map_view)
+    _add_legend(map_view, comparison.mode, comparison.indicator_source != "seoul-public-data")
     folium.LayerControl(collapsed=False).add_to(map_view)
     map_view.fit_bounds(baseline_points + optimized_points)
     return map_view

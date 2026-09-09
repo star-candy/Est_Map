@@ -188,6 +188,29 @@ def prepare_heating(source: Path, target: Path) -> int:
     )
 
 
+def prepare_safe_return(source: Path, target: Path) -> int:
+    """안심귀갓길 통합 SHP의 시설 지점을 좌표 표준 형식으로 변환한다."""
+    import geopandas as gpd
+
+    frame = gpd.read_file(source).to_crs("EPSG:4326")
+
+    def rows():
+        for index, geometry in enumerate(frame.geometry):
+            if geometry is None or geometry.is_empty or geometry.geom_type != "Point":
+                continue
+            yield {
+                "id": f"safe-return-{index + 1}",
+                "latitude": geometry.y,
+                "longitude": geometry.x,
+                "label": "안심귀갓길 연계 시설",
+                "is_sample": "false",
+            }
+
+    return _write_rows(
+        target, ["id", "latitude", "longitude", "label", "is_sample"], rows()
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-dir", type=Path, default=DEFAULT_DOWNLOADS)
@@ -216,6 +239,12 @@ def main() -> None:
         "heating.csv.gz": prepare_heating(
             args.source_dir / "자치구별 도로열선 설치현황_20260531.csv",
             args.output_dir / "heating.csv.gz",
+        ),
+        "safe_return.csv.gz": prepare_safe_return(
+            args.source_dir
+            / "안심귀갓길 서비스 통합데이터_SHP"
+            / "안심귀갓길 서비스 통합데이터.shp",
+            args.output_dir / "safe_return.csv.gz",
         ),
     }
     for name, count in jobs.items():

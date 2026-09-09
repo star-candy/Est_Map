@@ -20,7 +20,7 @@ from shapely.ops import transform
 from src.domain import Coordinates, RouteMode
 from src.indicators.scoring import edge_comfort, path_comfort_score
 from src.routing.graph import haversine_m
-from src.routing.weighted import path_distance
+from src.routing.weighted import calculate_adjusted_cost, path_distance
 
 State = tuple[str, int, int]
 QTable = dict[State, dict[str, float]]
@@ -66,14 +66,17 @@ def graph_fingerprint(graph: nx.MultiDiGraph) -> str:
             str(end),
             str(key),
             round(float(data["length"]), 3),
-            *(round(float(data[field]), 4) for field in (
-                "shade_score",
-                "ginkgo_risk",
-                "heating_score",
-                "icing_risk",
-                "light_score",
-                "safety_score",
-            )),
+            *(
+                round(float(data[field]), 4)
+                for field in (
+                    "shade_score",
+                    "ginkgo_risk",
+                    "heating_score",
+                    "icing_risk",
+                    "light_score",
+                    "safety_score",
+                )
+            ),
         )
         for start, end, key, data in graph.edges(keys=True, data=True)
     )
@@ -154,11 +157,9 @@ class QLearningEnvironment:
             self.graph.nodes[self.target]["y"], self.graph.nodes[self.target]["x"]
         )
         progress_m = haversine_m(before, target_point) - haversine_m(after, target_point)
-        reward = (
-            -(length / 100.0)
-            + 2.0 * edge_comfort(edge, self.mode)
-            + progress_m / 20.0
-        )
+        # edge 개수가 아니라 실제 길이에 비례시켜 짧게 분절된 도로의 편향을 막고,
+        # weighted A*와 같은 모드 비용을 학습 목표로 사용한다.
+        reward = -(calculate_adjusted_cost(dict(edge), self.mode) / 100.0) + progress_m / 20.0
         if next_node in self.visited:
             reward -= 15.0
         self.distance_travelled += length
@@ -254,9 +255,7 @@ def evaluate_policy(
 
 def train_q_learning(environment: QLearningEnvironment) -> tuple[QTable, dict[str, Any]]:
     config = environment.config
-    before = evaluate_policy(
-        environment, None, config.evaluation_episodes, config.random_seed + 1
-    )
+    before = evaluate_policy(environment, None, config.evaluation_episodes, config.random_seed + 1)
     q_table: QTable = {}
     rng = random.Random(config.random_seed)
     for episode in range(config.episodes):
@@ -312,9 +311,7 @@ def build_route_corridor_graph(
     buffer_m: float = 200.0,
 ) -> nx.MultiDiGraph:
     """기준 경로 주변만 남겨 실제 구간의 tabular 학습 규모를 제한한다."""
-    route = LineString(
-        [(graph.nodes[node]["x"], graph.nodes[node]["y"]) for node in baseline_path]
-    )
+    route = LineString([(graph.nodes[node]["x"], graph.nodes[node]["y"]) for node in baseline_path])
     corridor = transform(_TO_METERS.transform, route).buffer(buffer_m)
     selected = set(baseline_path)
     for node, data in graph.nodes(data=True):
@@ -336,9 +333,11 @@ def train_or_load_runtime_policy(
     model_directory: Path,
 ) -> tuple[InferenceResult, dict[str, Any]]:
     """실제 경로 corridor의 Q-table을 재사용하거나 재현 가능하게 학습한다."""
-    corridor = build_route_corridor_graph(graph, baseline_path)
+    corridor_width = 450.0 if mode is RouteMode.WINTER else 200.0
+    corridor = build_route_corridor_graph(graph, baseline_path, buffer_m=corridor_width)
     fingerprint = graph_fingerprint(corridor)
-    model_path = model_directory / f"{fingerprint[:20]}-{mode.name.lower()}-v2.joblib"
+    # v3는 거리 비례 보상과 겨울 corridor 확대를 반영하므로 이전 캐시를 재사용하지 않는다.
+    model_path = model_directory / f"{fingerprint[:20]}-{mode.name.lower()}-v3.joblib"
     if model_path.is_file():
         q_table, metadata = load_policy(model_path)
     else:
@@ -348,9 +347,7 @@ def train_or_load_runtime_policy(
             random_seed=DEFAULT_RANDOM_SEED,
             evaluation_episodes=30,
         )
-        environment = QLearningEnvironment(
-            corridor, start, target, mode, baseline_distance, config
-        )
+        environment = QLearningEnvironment(corridor, start, target, mode, baseline_distance, config)
         q_table, metadata = train_q_learning(environment)
         save_policy(q_table, metadata, model_path)
     return (

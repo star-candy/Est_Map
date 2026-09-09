@@ -16,9 +16,7 @@ class KmaWeatherAdapter:
     service_key: str | None
     provenance: DatasetProvenance
 
-    def get_weather(
-        self, point: Coordinates, at: datetime | None = None
-    ) -> Mapping[str, Any]:
+    def get_weather(self, point: Coordinates, at: datetime | None = None) -> Mapping[str, Any]:
         del point, at
         if not self.service_key:
             raise DataSourceConfigurationError("KMA_DATA_API_KEY가 필요합니다.")

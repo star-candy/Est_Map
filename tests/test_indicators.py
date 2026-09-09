@@ -23,4 +23,3 @@ def test_every_edge_receives_normalized_indicators() -> None:
         for field in INDICATOR_FIELDS:
             assert field in data
             assert 0.0 <= data[field] <= 1.0
-

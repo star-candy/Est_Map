@@ -14,7 +14,6 @@ from src.reporting.accounting import (
     estimate_taxi_fare_krw,
 )
 from src.reporting.briefing import (
-    GeminiBriefingProvider,
     MonthlyReportChatbot,
     TemplateBriefingProvider,
 )
@@ -41,9 +40,7 @@ def test_taxi_savings_only_when_user_confirms_replacement() -> None:
 
 def test_carbon_calculation() -> None:
     assert estimate_carbon_saved_g(0) == 0
-    assert estimate_carbon_saved_g(1_000) == pytest.approx(
-        ACCOUNTING.passenger_car_co2_g_per_km
-    )
+    assert estimate_carbon_saved_g(1_000) == pytest.approx(ACCOUNTING.passenger_car_co2_g_per_km)
 
 
 def test_monthly_aggregation_and_duplicate_prevention(tmp_path: Path) -> None:
@@ -110,33 +107,6 @@ def test_template_briefing_uses_calculated_summary(tmp_path: Path) -> None:
 
     assert "2.00km" in briefing
     assert f"{accounting.taxi_saved_krw:,}원" in briefing
-
-
-def test_gemini_adapter_sends_only_structured_aggregate(monkeypatch, tmp_path: Path) -> None:
-    store = MonthlyReportStore(tmp_path / "reports.sqlite3")
-    summary = store.monthly_summary("2026-04")
-    captured: dict = {}
-
-    class FakeResponse:
-        def raise_for_status(self) -> None:
-            return None
-
-        def json(self) -> dict:
-            return {"candidates": [{"content": {"parts": [{"text": "월간 브리핑"}]}}]}
-
-    def fake_post(url, *, headers, json, timeout):
-        captured.update(url=url, headers=headers, json=json, timeout=timeout)
-        return FakeResponse()
-
-    monkeypatch.setattr("src.reporting.briefing.requests.post", fake_post)
-    result = GeminiBriefingProvider("test-key", "test-model").generate(summary)
-
-    prompt = captured["json"]["contents"][0]["parts"][0]["text"]
-    assert result == "월간 브리핑"
-    assert "walking_distance_km" in prompt
-    assert "latitude" not in prompt
-    assert "longitude" not in prompt
-    assert "path" not in prompt
 
 
 def test_langchain_chatbot_uses_statistics_and_history(monkeypatch) -> None:

@@ -2,20 +2,13 @@
 
 import json
 from collections.abc import Sequence
-from typing import Protocol, TypedDict
-
-import requests
+from typing import TypedDict
 
 from src.reporting.monthly import MonthlySummary
 
 
 class BriefingError(RuntimeError):
     """외부 브리핑 공급자 호출 실패."""
-
-
-class BriefingProvider(Protocol):
-    def generate(self, summary: MonthlySummary) -> str:
-        """이미 계산된 월간 집계를 설명한다."""
 
 
 class TemplateBriefingProvider:
@@ -29,45 +22,6 @@ class TemplateBriefingProvider:
             f"택시 대신 걸었다고 확인한 이동의 추정 절감액은 "
             f"{summary.taxi_saved_krw:,}원입니다."
         )
-
-
-class GeminiBriefingProvider:
-    def __init__(self, api_key: str, model: str, timeout_seconds: int = 20) -> None:
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY가 필요합니다.")
-        self.api_key = api_key
-        self.model = model
-        self.timeout_seconds = timeout_seconds
-
-    def generate(self, summary: MonthlySummary) -> str:
-        statistics = {
-            "month": summary.month,
-            "trip_count": summary.trip_count,
-            "walking_distance_km": round(summary.distance_m / 1_000, 3),
-            "carbon_saved_kg_co2e": round(summary.carbon_saved_g / 1_000, 3),
-            "taxi_saved_krw": summary.taxi_saved_krw,
-        }
-        prompt = (
-            "다음은 코드가 이미 계산한 월간 도보 통계입니다. 수치를 다시 계산하거나 "
-            "새 수치를 만들지 말고, 과장 없이 한국어 두 문장으로 설명하세요.\n"
-            + json.dumps(statistics, ensure_ascii=False)
-        )
-        url = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{self.model}:generateContent"
-        )
-        try:
-            response = requests.post(
-                url,
-                headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
-                json={"contents": [{"parts": [{"text": prompt}]}]},
-                timeout=self.timeout_seconds,
-            )
-            response.raise_for_status()
-            payload = response.json()
-            return str(payload["candidates"][0]["content"]["parts"][0]["text"]).strip()
-        except (requests.RequestException, KeyError, IndexError, TypeError, ValueError) as exc:
-            raise BriefingError("Gemini 브리핑을 생성하지 못했습니다.") from exc
 
 
 class ChatTurn(TypedDict):
@@ -124,9 +78,7 @@ class MonthlyReportChatbot:
         try:
             from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-            statistics = json.dumps(
-                self._statistics(summary, previous), ensure_ascii=False
-            )
+            statistics = json.dumps(self._statistics(summary, previous), ensure_ascii=False)
             system = SystemMessage(
                 content=(
                     "당신은 서울 쾌적 경로 앱의 월간 이동 코치입니다. 제공된 구조화 통계와 "
@@ -152,9 +104,7 @@ class MonthlyReportChatbot:
                     text = content
                 else:
                     text = "".join(
-                        str(block.get("text", ""))
-                        for block in content
-                        if isinstance(block, dict)
+                        str(block.get("text", "")) for block in content if isinstance(block, dict)
                     )
             if not str(text).strip():
                 raise BriefingError("Gemini가 빈 답변을 반환했습니다.")

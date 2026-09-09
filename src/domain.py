@@ -16,7 +16,7 @@ class RouteMode(StrEnum):
             RouteMode.SUMMER: "그늘이 많은 길을 우선합니다.",
             RouteMode.AUTUMN: "은행나무 밀집 구간을 덜 지나도록 돕습니다.",
             RouteMode.WINTER: "결빙 위험을 줄이고 도로 열선 구간을 우선합니다.",
-            RouteMode.SAFETY: "가로등과 야간 보행 지표가 좋은 길을 우선합니다.",
+            RouteMode.SAFETY: "안심귀갓길 연계 시설과 가로등이 가까운 길을 우선합니다.",
         }[self]
 
 
@@ -76,6 +76,7 @@ class RouteComparison:
     notice: str | None = None
     model_version: str | None = None
     indicator_source: str = "sample"
+    heating_segments: tuple[tuple[Coordinates, ...], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,3 +103,15 @@ class BikeRecommendation:
     estimated_duration_min: float = 0.0
     is_sample: bool = True
     inventory_known: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class Restaurant:
+    provider_id: str
+    name: str
+    coordinates: Coordinates
+    address: str
+    provider: str
+    rating: float | None = None
+    user_rating_count: int | None = None
+    map_url: str | None = None

@@ -16,8 +16,10 @@ def nearest_node(graph: nx.MultiDiGraph, point: Coordinates) -> Hashable:
         raise RoutingError("보행 그래프가 비어 있습니다.")
     return min(
         graph.nodes,
-        key=lambda node: (graph.nodes[node]["y"] - point.latitude) ** 2
-        + (graph.nodes[node]["x"] - point.longitude) ** 2,
+        key=lambda node: (
+            (graph.nodes[node]["y"] - point.latitude) ** 2
+            + (graph.nodes[node]["x"] - point.longitude) ** 2
+        ),
     )
 
 

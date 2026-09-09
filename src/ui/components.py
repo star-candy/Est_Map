@@ -3,14 +3,12 @@
 import pandas as pd
 import streamlit as st
 
-from src.domain import BikeRecommendation, RouteComparison, RouteMode
+from src.domain import BikeRecommendation, Restaurant, RouteComparison, RouteMode
 from src.reporting.accounting import TripAccounting
 from src.reporting.monthly import MonthlySummary
 
 
-def monthly_savings_delta(
-    summary: MonthlySummary, previous_summary: MonthlySummary | None
-) -> int:
+def monthly_savings_delta(summary: MonthlySummary, previous_summary: MonthlySummary | None) -> int:
     previous = previous_summary.taxi_saved_krw if previous_summary else 0
     return summary.taxi_saved_krw - previous
 
@@ -18,8 +16,8 @@ def monthly_savings_delta(
 def render_data_badge(use_real_data: bool = False) -> None:
     if use_real_data:
         st.info(
-            "서울 공공데이터 파일 사용 · 열선은 좌표가 없어 도로명 일치 edge에만 반영하며 "
-            "결빙 위험은 포함하지 않습니다."
+            "서울 공공데이터 파일 사용 · 일반·맞춤 경로는 OSM 보행망을 사용합니다. "
+            "열선은 도로명이 확인된 구간만 표시합니다."
         )
     else:
         st.warning("🧪 **샘플 데이터 기반 데모** · 공간 지표는 실제 공공데이터가 아닙니다.")
@@ -61,7 +59,7 @@ def render_results(comparison: RouteComparison | None) -> None:
     detour_column.metric("맞춤 경로 우회율", f"{comparison.detour_ratio:.1%}")
     method_column.metric("생성 방식", comparison.method)
     st.info(comparison.explanation)
-    st.caption(f"출처: {comparison.source} · 보행 속도 4.5km/h · 최대 우회율 25%")
+    st.caption(f"출처: {comparison.source} · 보행 속도 4.5km/h · 맞춤 경로 우회율 제한 없음")
     if comparison.model_version:
         st.caption(f"로드된 RL 모델: {comparison.model_version}")
     if comparison.fallback_reason:
@@ -107,6 +105,26 @@ def render_bike_recommendation(recommendation: BikeRecommendation | None) -> Non
     time_column.metric("개략 예상 시간", f"{recommendation.estimated_duration_min:.0f}분")
     if recommendation.is_sample:
         st.caption("대여소 위치와 가용 자전거·거치대 수는 실시간 정보가 아닌 합성 샘플 값입니다.")
+
+
+def render_restaurants(restaurants: tuple[Restaurant, ...], errors: tuple[str, ...] = ()) -> None:
+    st.subheader("경로 주변 맛집")
+    if not restaurants:
+        st.caption("경로 검색 후 ‘주변 음식점 찾기’를 누르면 맞춤 경로 주변을 조회합니다.")
+    for restaurant in restaurants:
+        rating = f" · 평점 {restaurant.rating:.1f}" if restaurant.rating is not None else ""
+        reviews = (
+            f" · 리뷰 {restaurant.user_rating_count:,}개"
+            if restaurant.user_rating_count is not None
+            else ""
+        )
+        with st.container(border=True):
+            st.markdown(f"**{restaurant.name}**{rating}{reviews}")
+            st.caption(f"{restaurant.address} · {restaurant.provider}")
+            if restaurant.map_url:
+                st.link_button("지도에서 보기", restaurant.map_url)
+    if errors:
+        st.warning(" ".join(errors))
 
 
 def render_completion_success(accounting: TripAccounting, taxi_replaced: bool) -> None:

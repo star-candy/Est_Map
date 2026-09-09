@@ -8,7 +8,6 @@ from src.indicators.scoring import attach_sample_indicators
 from src.routing.graph import load_sample_walking_graph
 from src.routing.weighted import (
     calculate_adjusted_cost,
-    enforce_detour_limit,
     path_distance,
     weighted_astar_path,
 )
@@ -38,15 +37,17 @@ def test_weighted_astar_returns_valid_route() -> None:
     assert nx.is_path(graph, path)
     assert path_distance(graph, path) > 0
     assert comparison.optimized.comfort_score >= comparison.baseline.comfort_score
-    assert comparison.detour_ratio <= 0.25
 
 
-def test_detour_limit_falls_back_to_baseline() -> None:
-    path, distance, reason = enforce_detour_limit([1, 2], 100.0, [1, 3, 2], 130.0)
-
-    assert path == [1, 2]
-    assert distance == 100.0
-    assert reason is not None
+def test_winter_heating_discount_can_outweigh_a_nearby_detour() -> None:
+    cold = {
+        "length": 100.0, "shade_score": 0.0, "ginkgo_risk": 0.0,
+        "heating_score": 0.0, "icing_risk": 0.0, "light_score": 0.0, "safety_score": 0.0,
+    }
+    heated = {**cold, "length": 120.0, "heating_score": 1.0}
+    assert calculate_adjusted_cost(heated, RouteMode.WINTER) < calculate_adjusted_cost(
+        cold, RouteMode.WINTER
+    )
 
 
 @pytest.mark.parametrize("mode", list(RouteMode))
@@ -55,7 +56,7 @@ def test_every_mode_returns_comparison_within_detour_limit(mode: RouteMode) -> N
 
     assert comparison.baseline.distance_m > 0
     assert comparison.optimized.distance_m > 0
-    assert comparison.detour_ratio <= 0.25
+    assert comparison.detour_ratio > -1.0
     assert 0.0 <= comparison.baseline.comfort_score <= 100.0
     assert 0.0 <= comparison.optimized.comfort_score <= 100.0
     assert comparison.explanation

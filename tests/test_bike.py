@@ -45,9 +45,7 @@ def test_bike_not_eligible_below_both_thresholds() -> None:
 def test_nearest_station_skips_unavailable_bikes() -> None:
     point = Coordinates(37.5665, 126.9780)
     empty = BikeStation("empty", "빈 대여소", point, 0, 5, True)
-    available = BikeStation(
-        "available", "대여 가능", Coordinates(37.5667, 126.9782), 2, 3, True
-    )
+    available = BikeStation("available", "대여 가능", Coordinates(37.5667, 126.9782), 2, 3, True)
 
     selected = find_nearest_station((empty, available), point, require_bike=True)
 
@@ -58,9 +56,7 @@ def test_nearest_station_skips_unavailable_docks_and_excluded_station() -> None:
     point = Coordinates(37.5665, 126.9780)
     no_dock = BikeStation("no-dock", "반납 불가", point, 4, 0, True)
     excluded = BikeStation("excluded", "제외", Coordinates(37.5666, 126.9781), 4, 4, True)
-    available = BikeStation(
-        "available", "반납 가능", Coordinates(37.5667, 126.9782), 2, 3, True
-    )
+    available = BikeStation("available", "반납 가능", Coordinates(37.5667, 126.9782), 2, 3, True)
 
     selected = find_nearest_station(
         (no_dock, excluded, available),

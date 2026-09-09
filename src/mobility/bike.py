@@ -10,9 +10,7 @@ from config.settings import SETTINGS
 from src.domain import BikeRecommendation, BikeStation, Coordinates, RoutePath
 from src.routing.graph import haversine_m
 
-SAMPLE_STATIONS_PATH = (
-    Path(__file__).resolve().parents[2] / "data" / "sample" / "bike_stations.csv"
-)
+SAMPLE_STATIONS_PATH = Path(__file__).resolve().parents[2] / "data" / "sample" / "bike_stations.csv"
 WALKING_SPEED_M_PER_MIN = 75.0
 CYCLING_SPEED_M_PER_MIN = 250.0
 BIKE_ROAD_FACTOR = 1.15

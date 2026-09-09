@@ -83,9 +83,7 @@ def edge_comfort(data: Mapping[str, Any], mode: RouteMode) -> float:
     return 0.5 * (float(data["light_score"]) + float(data["safety_score"]))
 
 
-def path_comfort_score(
-    graph: nx.MultiDiGraph, path: Sequence[Hashable], mode: RouteMode
-) -> float:
+def path_comfort_score(graph: nx.MultiDiGraph, path: Sequence[Hashable], mode: RouteMode) -> float:
     weighted_score = 0.0
     total_length = 0.0
     for start, end in zip(path, path[1:], strict=False):

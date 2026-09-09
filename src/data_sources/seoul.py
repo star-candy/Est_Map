@@ -133,9 +133,7 @@ class SeoulBikeStationAdapter:
                     )
                 )
         except (KeyError, TypeError, ValueError) as exc:
-            raise DataSourceError(
-                "따릉이 응답 스키마가 확정된 필드 매핑과 다릅니다."
-            ) from exc
+            raise DataSourceError("따릉이 응답 스키마가 확정된 필드 매핑과 다릅니다.") from exc
         return tuple(stations)
 
 

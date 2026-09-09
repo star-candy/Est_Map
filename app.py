@@ -17,6 +17,11 @@ from src.mobility.bike import (
     StaticSeoulBikeStationProvider,
     recommend_bike_trip,
 )
+from src.places.restaurants import (
+    GoogleRestaurantProvider,
+    TmapRestaurantProvider,
+    find_route_restaurants,
+)
 from src.reporting.accounting import calculate_trip_accounting
 from src.reporting.briefing import (
     BriefingError,
@@ -31,6 +36,7 @@ from src.ui.components import (
     render_data_badge,
     render_mode_help,
     render_monthly_report,
+    render_restaurants,
     render_results,
 )
 
@@ -124,19 +130,50 @@ def main() -> None:
                     st.session_state.last_accounting = None
                     st.session_state.last_taxi_replaced = False
                     st.session_state.gemini_briefing = None
+                    st.session_state.restaurants = ()
+                    st.session_state.restaurant_errors = ()
                 except RouteServiceError as exc:
                     st.session_state.route_comparison = None
                     st.error(str(exc))
 
     comparison = st.session_state.route_comparison
+    restaurants = st.session_state.get("restaurants", ())
+    restaurant_errors = st.session_state.get("restaurant_errors", ())
+    if comparison is not None:
+        providers = []
+        if SETTINGS.tmap_app_key:
+            providers.append(
+                TmapRestaurantProvider(
+                    SETTINGS.tmap_app_key, SETTINGS.external_request_timeout_seconds
+                )
+            )
+        if SETTINGS.google_map_api_key:
+            providers.append(
+                GoogleRestaurantProvider(
+                    SETTINGS.google_map_api_key, SETTINGS.external_request_timeout_seconds
+                )
+            )
+        if st.button("🍽️ 맞춤 경로 주변 맛집 찾기", disabled=not providers):
+            with st.spinner("경로 주변 음식점을 찾고 있습니다..."):
+                restaurants, restaurant_errors = find_route_restaurants(
+                    comparison.optimized,
+                    tuple(providers),
+                    SETTINGS.restaurant_search_radius_m,
+                    SETTINGS.restaurant_max_results,
+                )
+                st.session_state.restaurants = restaurants
+                st.session_state.restaurant_errors = restaurant_errors
+        if not providers:
+            st.caption("TMAP 또는 Google Places API 키가 없어 음식점 검색을 사용할 수 없습니다.")
     st.subheader("지도")
     st_folium(
-        create_route_map(SETTINGS, comparison),
+        create_route_map(SETTINGS, comparison, restaurants),
         height=SETTINGS.map_height,
         use_container_width=True,
         returned_objects=[],
     )
     render_results(comparison)
+    render_restaurants(restaurants, restaurant_errors)
     bike_recommendation = None
     if comparison is not None:
         bike_recommendation = recommend_bike_trip(

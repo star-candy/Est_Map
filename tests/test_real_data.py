@@ -23,6 +23,9 @@ def test_processed_real_data_and_female_ginkgo_filter() -> None:
     assert len(trees) == 287_635
     assert len(female) == 15_316
     assert all(point.label == "은행나무 암나무" for point in female)
+    safe_return = load_real_points("safe_return", central_seoul)
+    assert len(safe_return) == 347
+    assert all(not point.is_female_ginkgo for point in safe_return)
 
 
 def test_real_indicators_are_normalized_on_every_edge() -> None:
@@ -45,6 +48,14 @@ def test_heating_road_name_changes_winter_edge_score() -> None:
     graph = load_sample_walking_graph().copy()
     start, end, key = next(iter(graph.edges(keys=True)))
     graph.edges[start, end, key]["name"] = "명륜길"
+    scored = attach_real_indicators(graph)
+    assert scored.edges[start, end, key]["heating_score"] == 1.0
+
+
+def test_heating_road_name_accepts_previous_partial_match_behavior() -> None:
+    graph = load_sample_walking_graph().copy()
+    start, end, key = next(iter(graph.edges(keys=True)))
+    graph.edges[start, end, key]["name"] = "명륜"
     scored = attach_real_indicators(graph)
     assert scored.edges[start, end, key]["heating_score"] == 1.0
 
@@ -75,7 +86,8 @@ def test_real_mode_routes_and_map_layers_when_osm_is_offline(monkeypatch) -> Non
     assert "은행나무 암나무 · 경로 주변" in layer_names
     assert "실제 그늘막 · 경로 주변" in layer_names
     assert "실제 가로등 · 경로 주변" in layer_names
-    assert "도로 열선 자료 안내" in layer_names
+    assert "안심귀갓길 연계 시설 · 경로 주변" in layer_names
+    assert "도로명으로 확인된 열선 구간" in layer_names
 
 
 def test_static_bike_data_does_not_invent_inventory() -> None:

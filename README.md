@@ -71,7 +71,8 @@ python -m scripts.prepare_osm_network
 ```
 
 다른 위치라면 `--source-dir`을 지정합니다. `data/processed/*.csv.gz`에는 가로수
-287,635건, 은행나무 암나무 15,316건, 그늘막 4,941건, 가로등 19,316건, 열선
+287,635건, 은행나무 암나무 15,316건, 그늘막 4,941건, 가로등 19,316건,
+안심귀갓길 연계 시설 347건, 열선
 993건, 정적 따릉이 대여소 2,789건이 저장됩니다.
 PBF 전처리는 서울 보행망을 `data/processed/seoul_walk.sqlite3.gz`로 저장합니다. 앱 최초
 실행 시 이를 `cache/`에 해제하므로 이후 Downloads 원본은 필요하지 않습니다.
@@ -118,8 +119,9 @@ streamlit run app.py --server.headless true
 - `src/domain.py`: UI와 독립적인 입력 및 결과 모델
 - `src/geocoding.py`: 샘플 및 OSM 지오코딩 adapter, 서울 범위 검증과 캐시
 - `src/routing/`: 합성·OSM 그래프 로딩과 NetworkX 거리 최단 경로
-- `src/routing/weighted.py`: 모드별 edge 비용, weighted A*와 25% 우회 제한
+- `src/routing/weighted.py`: 모드별 edge 비용과 weighted A* 경로
 - `src/routing/rl_agent.py`: Q-learning 환경, 학습, 평가, 저장·로딩 및 추론
+- `src/places/restaurants.py`: TMAP·Google Places 기반 맞춤 경로 주변 음식점 검색
 - `src/indicators/`: 합성/실제 지표 로딩, edge 공간 결합과 쾌적 점수
 - `src/services/routing.py`: 지오코딩과 그래프 및 fallback을 조율하는 서비스
 - `src/map_view.py`: 두 경로, 모드별 합성 지표 layer와 범례
@@ -135,7 +137,7 @@ streamlit run app.py --server.headless true
 - 지도 경로는 현재 graph node를 연결한 선으로 표시하므로 실제 도로 곡선이 단순화됩니다.
 - 샘플 모드 지표는 합성 값입니다. 실제 모드는 첨부 공공데이터를 사용하지만 공간
   근접도 점수 자체는 MVP용 proxy입니다.
-- 맞춤 경로는 최대 25% 우회만 허용하며 초과 시 일반 경로로 fallback합니다.
+- 맞춤 경로의 우회율은 비교 정보로 표시하며, 우회율만을 이유로 일반 경로로 교체하지 않습니다.
 - 쾌적 점수는 선택 모드 지표의 길이 가중 평균으로, 경로 안전성을 보장하지 않습니다.
 - 샘플 그래프는 서울 전역 탐색이 아니며 RL 정책도 고정 구간·여름 모드에만 학습됐습니다.
 - 브라우저별 화면·모바일 레이아웃은 실제 기기에서 추가 수동 검수가 필요합니다.
@@ -143,7 +145,7 @@ streamlit run app.py --server.headless true
 ## 데이터 출처와 라이선스
 
 샘플 모드는 프로젝트 합성 데이터를 사용합니다. 실제 모드는 첨부된 서울시 가로수,
-그늘막, 도로 열선, 가로등, 공공자전거 대여소 파일을 사용합니다. 보행 그래프와 배경
+그늘막, 도로 열선, 가로등, 안심귀갓길 연계 시설, 공공자전거 대여소 파일을 사용합니다. 보행 그래프와 배경
 지도는 OpenStreetMap을 사용하므로 실제 배포에서는 OpenStreetMap
 저작자 표시와 타일 사용 정책을 준수해야 합니다. 연결 준비 중인 서울 자료에는 공공누리
 제1유형과 제4유형이 섞여 있습니다. 데이터별 공식 URL, 갱신일, 확인된 필드, 좌표계,
@@ -154,7 +156,7 @@ streamlit run app.py --server.headless true
 일반 경로는 NetworkX 거리 최단 경로입니다. 실제 모드에서는 OSMnx가 출도착 주변의
 OpenStreetMap 보행 그래프를 불러오고, 실패하면 명시적으로 합성 fallback 그래프를
 사용합니다. weighted A*는 직선거리 heuristic과 아래 모드별 edge 비용을 사용합니다.
-후보가 일반 경로보다 25% 넘게 우회하면 일반 경로로 되돌립니다.
+맞춤 후보는 우회율과 관계없이 유지하며 사용자가 일반 경로와 거리·시간을 비교할 수 있습니다.
 
 ## 맞춤 경로 비용
 
@@ -163,7 +165,7 @@ OpenStreetMap 보행 그래프를 불러오고, 실패하면 명시적으로 합
 - 여름: 그늘 점수가 높을수록 비용 감소
 - 가을: 은행나무 위험이 높을수록 비용 증가
 - 겨울: 결빙 위험은 비용 증가, 열선 점수는 비용 감소
-- 안심: 가로등과 야간 안전 proxy가 낮을수록 비용 증가
+- 안심: 안심귀갓길 연계 시설 40m 이내 근접도 55%와 가로등 25m 이내 밀도 45%를 결합
 
 합성 지표의 출처와 필드는 `data/README.md`에 기록되어 있습니다.
 
@@ -176,13 +178,13 @@ OpenStreetMap 보행 그래프를 불러오고, 실패하면 명시적으로 합
 각 모드별로 seed 42의 Q-learning을 1,500 episode 학습합니다. 상태와 행동은 아래와
 같고 진행 거리 기반 reward shaping도 학습 보상에 포함됩니다. 학습 Q-table과 metadata는
 `models/runtime/`에 캐시되어 같은 그래프·구간·모드 검색에서 재사용됩니다. 학습 정책이
-루프, 미도달 또는 25% 초과 우회를 만들면 weighted A*로 fallback합니다.
+루프, 미도달 또는 RL 내부 탐색 한도를 넘으면 weighted A*로 fallback합니다.
 
 - 상태: 현재 노드, 목적지까지의 거리 구간, 현재 노드의 모드 지표 구간
 - 행동: 현재 노드에서 연결된 인접 edge의 다음 노드 선택
 - 보상: 목적지 도착, edge 거리 비용, 모드 쾌적성, 재방문 및 최대 우회 패널티
-- 안전장치: graph fingerprint, 모드와 출도착 검증, 미학습 상태·반복·최대 step·25%
-  우회 제한 검사
+- 안전장치: graph fingerprint, 모드와 출도착 검증, 미학습 상태·반복·최대 step
+  RL episode 내부 과도 탐색 검사
 
 저장된 metadata의 평가 결과:
 
@@ -193,7 +195,8 @@ OpenStreetMap 보행 그래프를 불러오고, 실패하면 명시적으로 합
 | 평균 우회율 | 0.0% | 0.0% |
 | 평균 여름 쾌적 점수 | 0.0점 | 0.0점 |
 
-평균 우회율과 쾌적 점수는 우회 제한 안에서 목적지에 성공한 episode만 집계합니다.
+학습 평가의 평균 우회율과 쾌적 점수는 RL episode 내부 한도 안에서 목적지에 성공한
+episode만 집계합니다. 최종 weighted A* 맞춤 경로에는 우회율 제한을 적용하지 않습니다.
 이 평가에서는 도달률과 보상은 개선됐지만 쾌적 점수 개선은 검증되지 않았습니다.
 따라서 RL이 weighted A*보다 더 쾌적한 경로를 만든다고 주장하지 않습니다.
 

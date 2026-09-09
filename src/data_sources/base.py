@@ -39,6 +39,4 @@ class WeatherProvider(Protocol):
 
     provenance: DatasetProvenance
 
-    def get_weather(
-        self, point: Coordinates, at: datetime | None = None
-    ) -> Mapping[str, Any]: ...
+    def get_weather(self, point: Coordinates, at: datetime | None = None) -> Mapping[str, Any]: ...

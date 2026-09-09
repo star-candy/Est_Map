@@ -127,9 +127,7 @@ def _offline_database_path() -> Path:
 
 
 @lru_cache(maxsize=8)
-def _load_offline_bbox(
-    west: float, south: float, east: float, north: float
-) -> nx.MultiDiGraph:
+def _load_offline_bbox(west: float, south: float, east: float, north: float) -> nx.MultiDiGraph:
     graph = nx.MultiDiGraph(crs="EPSG:4326", source="OSM-PBF-offline")
     query = """
         SELECT e.edge_id, e.u, e.v, e.length_m, e.name, e.highway,
@@ -157,9 +155,7 @@ def _load_offline_bbox(
     return graph
 
 
-def load_offline_walking_graph(
-    origin: Coordinates, destination: Coordinates
-) -> nx.MultiDiGraph:
+def load_offline_walking_graph(origin: Coordinates, destination: Coordinates) -> nx.MultiDiGraph:
     """압축 배포된 서울 OSM PBF 인덱스에서 연결된 보행 부분 그래프를 읽는다."""
     from src.routing.baseline import nearest_node
 
