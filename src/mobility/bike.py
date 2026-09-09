@@ -128,7 +128,7 @@ def recommend_bike_trip(
         return BikeRecommendation(
             eligible=True,
             recommended=False,
-            reason="출발지 700m 이내에 대여 가능한 샘플 따릉이 대여소가 없습니다.",
+            reason="출발지 700m 이내에 대여 가능한 따릉이 대여소가 없습니다.",
         )
     dropoff = find_nearest_station(
         stations,
@@ -140,7 +140,7 @@ def recommend_bike_trip(
         return BikeRecommendation(
             eligible=True,
             recommended=False,
-            reason="도착지 700m 이내에 반납 가능한 샘플 따릉이 대여소가 없습니다.",
+            reason="도착지 700m 이내에 반납 가능한 따릉이 대여소가 없습니다.",
         )
 
     first_walk = haversine_m(origin, pickup.coordinates)

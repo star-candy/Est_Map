@@ -12,7 +12,6 @@ from src.indicators.real import attach_real_indicators
 from src.indicators.scoring import attach_sample_indicators, path_comfort_score
 from src.routing.baseline import nearest_node, path_coordinates, shortest_path
 from src.routing.graph import (
-    build_fallback_graph,
     load_offline_walking_graph,
     load_osm_walking_graph,
     load_sample_walking_graph,
@@ -33,7 +32,7 @@ class RouteServiceError(RuntimeError):
 def _explanation(request: RouteRequest, baseline_score: float, optimized_score: float) -> str:
     focus = {
         "여름": "그늘·수관 proxy가 높은 구간",
-        "가을": "합성 은행나무 위험이 낮은 구간",
+        "가을": "은행나무 암나무 위험이 낮은 구간",
         "겨울": "열선 proxy가 높고 결빙 위험이 낮은 구간",
         "안심": "안심귀갓길 연계 시설과 가로등이 가까운 구간",
     }[request.mode.value]
@@ -81,15 +80,10 @@ class RoutingService:
         elif use_osm:
             try:
                 point, notice = OSMGeocoder().geocode(query), None
-            except GeocodingError as external_error:
-                try:
-                    point = SampleGeocoder().geocode(query)
-                    notice = f"{external_error} '{query}'의 샘플 좌표를 사용했습니다."
-                except GeocodingError as sample_error:
-                    raise RouteServiceError(
-                        f"{label} 주소를 찾지 못했습니다. "
-                        "예제 장소를 선택하거나 좌표를 입력해 주세요."
-                    ) from sample_error
+            except GeocodingError as exc:
+                raise RouteServiceError(
+                    f"{label} 주소를 찾지 못했습니다. 주소를 확인하거나 좌표를 입력해 주세요."
+                ) from exc
         else:
             try:
                 point, notice = SampleGeocoder().geocode(query), None
@@ -126,13 +120,10 @@ class RoutingService:
                         "오프라인 보행망을 사용할 수 없어 온라인 연결을 사용했습니다: "
                         f"{offline_error}"
                     )
-                except Exception:
-                    graph = build_fallback_graph(origin, destination)
-                    is_sample = True
-                    source = "합성 fallback 보행 그래프와 합성 공간 지표"
-                    notices.append(
-                        "오프라인·온라인 보행망 연결에 실패하여 합성 샘플 경로를 표시합니다."
-                    )
+                except Exception as online_error:
+                    raise RouteServiceError(
+                        "오프라인·온라인 OSM 보행망에서 연결된 경로를 찾지 못했습니다."
+                    ) from online_error
         else:
             graph = load_sample_walking_graph()
 
@@ -141,8 +132,7 @@ class RoutingService:
                 graph = attach_real_indicators(graph)
                 source = source.replace("합성 공간 지표", "서울 공공데이터 공간 지표")
             except (FileNotFoundError, ValueError) as exc:
-                graph = attach_sample_indicators(graph)
-                notices.append(f"실제 데이터 처리에 실패하여 합성 지표를 사용합니다: {exc}")
+                raise RouteServiceError(f"서울 공공데이터를 처리하지 못했습니다: {exc}") from exc
         else:
             graph = attach_sample_indicators(graph)
         try:

@@ -13,14 +13,11 @@ def monthly_savings_delta(summary: MonthlySummary, previous_summary: MonthlySumm
     return summary.taxi_saved_krw - previous
 
 
-def render_data_badge(use_real_data: bool = False) -> None:
-    if use_real_data:
-        st.info(
-            "서울 공공데이터 파일 사용 · 일반·맞춤 경로는 OSM 보행망을 사용합니다. "
-            "열선은 도로명이 확인된 구간만 표시합니다."
-        )
-    else:
-        st.warning("🧪 **샘플 데이터 기반 데모** · 공간 지표는 실제 공공데이터가 아닙니다.")
+def render_data_badge() -> None:
+    st.info(
+        "서울 공공데이터 파일 사용 · 일반·맞춤 경로는 OSM 보행망을 사용합니다. "
+        "열선은 도로명이 확인된 구간만 표시합니다."
+    )
 
 
 def render_mode_help(mode: RouteMode) -> None:
@@ -137,6 +134,8 @@ def render_completion_success(accounting: TripAccounting, taxi_replaced: bool) -
     )
     if taxi_replaced:
         st.write(f"택시 대신 걸어서 아낀 추정 비용: **{accounting.taxi_saved_krw:,}원**")
+        if accounting.taxi_fare_source:
+            st.caption(f"계산 출처: {accounting.taxi_fare_source}")
 
 
 def render_monthly_report(

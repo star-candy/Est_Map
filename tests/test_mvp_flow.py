@@ -93,21 +93,22 @@ def test_invalid_address_and_outside_seoul_are_friendly(monkeypatch) -> None:
         )
 
 
-def test_network_failure_uses_explicit_sample_fallback(monkeypatch) -> None:
-    def fail_geocoding(self, query):
-        raise GeocodingError("offline")
-
+def test_network_failure_does_not_invent_sample_route(monkeypatch) -> None:
     def fail_graph(*args, **kwargs):
         raise ConnectionError("offline")
 
-    monkeypatch.setattr("src.services.routing.OSMGeocoder.geocode", fail_geocoding)
-    monkeypatch.setattr("src.services.routing.load_osm_walking_graph", fail_graph)
-    comparison = RoutingService().find_routes(
-        RouteRequest("서울시청", "광화문", RouteMode.SUMMER, use_osm=True)
+    monkeypatch.setattr(
+        "src.services.routing.OSMGeocoder.geocode",
+        lambda self, query: Coordinates(37.5665, 126.9780)
+        if query == "서울시청"
+        else Coordinates(37.5759, 126.9768),
     )
-    assert comparison.is_sample is True
-    assert comparison.notice is not None
-    assert "합성 샘플 경로" in comparison.notice
+    monkeypatch.setattr("src.services.routing.load_offline_walking_graph", fail_graph)
+    monkeypatch.setattr("src.services.routing.load_osm_walking_graph", fail_graph)
+    with pytest.raises(RouteServiceError, match="OSM 보행망"):
+        RoutingService().find_routes(
+            RouteRequest("서울시청", "광화문", RouteMode.SUMMER, use_osm=True)
+        )
 
 
 def test_no_path_is_reported_as_friendly_error(monkeypatch) -> None:

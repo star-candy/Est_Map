@@ -13,7 +13,6 @@ from src.domain import Coordinates, RouteMode, RouteRequest
 from src.geocoding import SAMPLE_PLACES
 from src.map_view import create_route_map
 from src.mobility.bike import (
-    SampleBikeStationProvider,
     StaticSeoulBikeStationProvider,
     recommend_bike_trip,
 )
@@ -29,6 +28,7 @@ from src.reporting.briefing import (
     TemplateBriefingProvider,
 )
 from src.reporting.monthly import MonthlyReportStore
+from src.reporting.taxi import TaxiFareError, TmapTaxiFareProvider
 from src.services.routing import RouteServiceError, RoutingService
 from src.ui.components import (
     render_bike_recommendation,
@@ -64,35 +64,20 @@ def main() -> None:
     )
     st.title(f"{SETTINGS.app_icon} {SETTINGS.app_title}")
     st.caption("서울의 일반 최단 보행 경로와 계절·안심 맞춤 경로를 비교하는 MVP입니다.")
-    data_source = st.radio(
-        "경로 데이터",
-        ("샘플 데모", "실제 로컬 데이터 + OpenStreetMap"),
-        horizontal=True,
-        help="실제 모드는 첨부 공공데이터와 OSM 보행망을 사용하며 인터넷 연결이 필요합니다.",
-    )
-    use_real_data = data_source == "실제 로컬 데이터 + OpenStreetMap"
-    render_data_badge(use_real_data)
+    render_data_badge()
 
     with st.form("route_search"):
-        use_osm = use_real_data
         direct_coordinates = False
         origin_coordinates = destination_coordinates = None
-
-        if use_osm:
-            origin_column, destination_column = st.columns(2)
-            origin = origin_column.text_input("출발지", value="서울역", placeholder="서울 내 주소")
-            destination = destination_column.text_input(
-                "도착지", value="광화문", placeholder="서울 내 주소"
-            )
-            direct_coordinates = st.checkbox("주소 대신 좌표 직접 입력")
-            if direct_coordinates:
-                origin_coordinates = _coordinate_inputs("출발지", SAMPLE_PLACES["서울역"])
-                destination_coordinates = _coordinate_inputs("도착지", SAMPLE_PLACES["광화문"])
-        else:
-            names = tuple(SAMPLE_PLACES)
-            origin_column, destination_column = st.columns(2)
-            origin = origin_column.selectbox("출발지", names, index=0)
-            destination = destination_column.selectbox("도착지", names, index=2)
+        origin_column, destination_column = st.columns(2)
+        origin = origin_column.text_input("출발지", value="서울역", placeholder="서울 내 주소")
+        destination = destination_column.text_input(
+            "도착지", value="광화문", placeholder="서울 내 주소"
+        )
+        direct_coordinates = st.checkbox("주소 대신 좌표 직접 입력")
+        if direct_coordinates:
+            origin_coordinates = _coordinate_inputs("출발지", SAMPLE_PLACES["서울역"])
+            destination_coordinates = _coordinate_inputs("도착지", SAMPLE_PLACES["광화문"])
 
         mode = st.radio(
             "경로 모드",
@@ -110,10 +95,10 @@ def main() -> None:
         origin=origin,
         destination=destination,
         mode=mode,
-        use_osm=use_osm,
+        use_osm=True,
         origin_coordinates=origin_coordinates if direct_coordinates else None,
         destination_coordinates=destination_coordinates if direct_coordinates else None,
-        use_real_data=use_real_data,
+        use_real_data=True,
     )
     if submitted:
         errors = request.validate()
@@ -129,6 +114,7 @@ def main() -> None:
                     st.session_state.trip_recorded = False
                     st.session_state.last_accounting = None
                     st.session_state.last_taxi_replaced = False
+                    st.session_state.fare_notice = None
                     st.session_state.gemini_briefing = None
                     st.session_state.restaurants = ()
                     st.session_state.restaurant_errors = ()
@@ -180,7 +166,7 @@ def main() -> None:
             comparison.baseline,
             comparison.origin,
             comparison.destination,
-            StaticSeoulBikeStationProvider() if use_real_data else SampleBikeStationProvider(),
+            StaticSeoulBikeStationProvider(),
         )
     render_bike_recommendation(bike_recommendation)
 
@@ -192,13 +178,26 @@ def main() -> None:
             ("일반 최단 경로", f"{comparison.mode.value} 맞춤 경로"),
             horizontal=True,
         )
-        taxi_replaced = st.checkbox("택시를 타는 대신 이 경로를 걸었습니다.")
+        taxi_replaced = st.checkbox(
+            "택시를 타는 대신 이 경로를 걸었습니다. (선택하면 절감액을 계산합니다.)"
+        )
         already_recorded = st.session_state.get("trip_recorded", False)
         if st.button("이동 완료", type="primary", disabled=already_recorded, width="stretch"):
             selected_route = (
                 comparison.baseline if route_kind == "일반 최단 경로" else comparison.optimized
             )
-            accounting = calculate_trip_accounting(selected_route.distance_m, taxi_replaced)
+            taxi_fare = None
+            fare_notice = None
+            if taxi_replaced and SETTINGS.tmap_app_key:
+                try:
+                    taxi_fare = TmapTaxiFareProvider(
+                        SETTINGS.tmap_app_key, SETTINGS.external_request_timeout_seconds
+                    ).estimate(comparison.origin, comparison.destination)
+                except TaxiFareError as exc:
+                    fare_notice = f"{exc} 서울 택시요금 가정식으로 계산했습니다."
+            accounting = calculate_trip_accounting(
+                selected_route.distance_m, taxi_replaced, taxi_fare_krw=taxi_fare
+            )
             completed_at = datetime.now(SEOUL_TIMEZONE)
             inserted = store.record_trip(
                 st.session_state.trip_id,
@@ -210,6 +209,7 @@ def main() -> None:
                 st.session_state.trip_recorded = True
                 st.session_state.last_accounting = accounting
                 st.session_state.last_taxi_replaced = taxi_replaced
+                st.session_state.fare_notice = fare_notice
             else:
                 st.session_state.trip_recorded = True
                 st.info("이미 기록된 이동입니다. 중복으로 집계하지 않았습니다.")
@@ -218,6 +218,8 @@ def main() -> None:
                 st.session_state.last_accounting,
                 st.session_state.last_taxi_replaced,
             )
+            if st.session_state.get("fare_notice"):
+                st.info(st.session_state.fare_notice)
 
     current_month = datetime.now(SEOUL_TIMEZONE).strftime("%Y-%m")
     months = store.available_months()

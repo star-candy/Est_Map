@@ -38,6 +38,12 @@ def test_taxi_savings_only_when_user_confirms_replacement() -> None:
     assert with_taxi.taxi_saved_krw > 0
 
 
+def test_tmap_fare_override_is_saved_as_savings() -> None:
+    accounting = calculate_trip_accounting(2_000, taxi_replaced=True, taxi_fare_krw=7_600)
+    assert accounting.taxi_saved_krw == 7_600
+    assert accounting.taxi_fare_source == "TMAP 예상 택시요금"
+
+
 def test_carbon_calculation() -> None:
     assert estimate_carbon_saved_g(0) == 0
     assert estimate_carbon_saved_g(1_000) == pytest.approx(ACCOUNTING.passenger_car_co2_g_per_km)
