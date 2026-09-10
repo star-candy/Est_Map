@@ -2,6 +2,8 @@
 
 경로가 생성되는 전체 과정과 강화학습의 상태·행동·보상·fallback은
 [`docs/route-generation.md`](docs/route-generation.md)에서 설명합니다.
+weighted A* 비용식과 Q-learning 학습·추론을 단계별로 이해하려면
+[`docs/routing-algorithms.md`](docs/routing-algorithms.md)를 참고하세요.
 개인정보 처리, AI 오류·편향과 복구 안내 점검 결과는
 [`docs/responsible-ai-checklist.md`](docs/responsible-ai-checklist.md)에 기록했습니다.
 AI 적용 기능, 사용 모델, 외부 서비스와 구현 도구는
