@@ -30,16 +30,19 @@ from src.reporting.briefing import (
 )
 from src.reporting.monthly import MonthlyReportStore
 from src.reporting.taxi import TaxiFareError, TmapTaxiFareProvider
+from src.rewards.points import PointStore, environmental_encouragement
 from src.services.routing import RouteServiceError, RoutingService
 from src.services.speech import GeminiSpeechProvider, SpeechError
 from src.ui.components import (
     render_bike_recommendation,
     render_completion_success,
     render_data_badge,
+    render_leaderboard,
     render_mode_help,
     render_monthly_report,
+    render_point_award,
+    render_point_summary,
     render_responsible_use_notice,
-    render_restaurant_coupon_offer,
     render_restaurants,
     render_results,
 )
@@ -168,10 +171,36 @@ def main() -> None:
         layout="wide",
         initial_sidebar_state="collapsed",
     )
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stToast"] {
+            width: min(420px, calc(100vw - 2rem));
+            padding: 0.25rem;
+        }
+        div[data-testid="stToast"] [data-testid="stMarkdownContainer"] p {
+            font-size: 1.05rem;
+            line-height: 1.5;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     st.title(f"{SETTINGS.app_icon} {SETTINGS.app_title}")
     st.caption("서울의 일반 최단 보행 경로와 계절·안심 맞춤 경로를 비교하는 MVP입니다.")
     render_responsible_use_notice()
     render_data_badge()
+
+    store = MonthlyReportStore(PROJECT_ROOT / SETTINGS.local_report_db_path)
+    point_store = PointStore(PROJECT_ROOT / SETTINGS.local_report_db_path)
+    now = datetime.now(SEOUL_TIMEZONE)
+    attendance_claimed = point_store.attendance_claimed(now)
+    if not attendance_claimed and st.button("오늘 출석체크 · 50 P 받기", type="primary"):
+        attendance_award = point_store.claim_attendance(now)
+        if attendance_award.awarded:
+            st.toast("출석체크 완료! 50포인트를 받았어요.", icon="🎁")
+        attendance_claimed = True
+    render_point_summary(point_store.total_points(), attendance_claimed)
 
     with st.form("route_search"):
         direct_coordinates = False
@@ -225,9 +254,9 @@ def main() -> None:
                     st.session_state.gemini_briefing = None
                     st.session_state.restaurants = ()
                     st.session_state.restaurant_errors = ()
-                    st.session_state.restaurant_coupon_open = False
                     st.session_state.navigation_active = False
                     st.session_state.navigation_audio = None
+                    st.session_state.last_point_award = None
                 except RouteServiceError as exc:
                     st.session_state.route_comparison = None
                     st.error(str(exc))
@@ -265,10 +294,13 @@ def main() -> None:
                 )
                 st.session_state.restaurants = restaurants
                 st.session_state.restaurant_errors = restaurant_errors
-                if restaurants:
-                    st.session_state.restaurant_coupon_open = True
-        if st.session_state.get("restaurant_coupon_open", False) and restaurants:
-            render_restaurant_coupon_offer(restaurants)
+                for restaurant in restaurants:
+                    st.toast(
+                        f"맛집 혜택 후보 · {restaurant.name}\n\n"
+                        "현재는 제휴 전 MVP 안내입니다.",
+                        icon="🎁",
+                        duration="infinite",
+                    )
         if not providers:
             st.caption("TMAP 또는 Google Places API 키가 없어 음식점 검색을 사용할 수 없습니다.")
     st.subheader("지도")
@@ -292,7 +324,6 @@ def main() -> None:
         )
     render_bike_recommendation(bike_recommendation)
 
-    store = MonthlyReportStore(PROJECT_ROOT / SETTINGS.local_report_db_path)
     if comparison is not None:
         st.subheader("이동 완료")
         route_kind = st.radio(
@@ -328,10 +359,24 @@ def main() -> None:
                 completed_at,
             )
             if inserted:
+                point_award = point_store.award_walking_trip(
+                    st.session_state.trip_id,
+                    accounting.distance_m,
+                    accounting.carbon_saved_g,
+                    completed_at,
+                )
                 st.session_state.trip_recorded = True
                 st.session_state.last_accounting = accounting
                 st.session_state.last_taxi_replaced = taxi_replaced
                 st.session_state.fare_notice = fare_notice
+                st.session_state.last_point_award = point_award
+                st.toast(
+                    environmental_encouragement(
+                        accounting.distance_m, accounting.carbon_saved_g
+                    ),
+                    icon="🐧",
+                    duration="infinite",
+                )
             else:
                 st.session_state.trip_recorded = True
                 st.info("이미 기록된 이동입니다. 중복으로 집계하지 않았습니다.")
@@ -342,6 +387,10 @@ def main() -> None:
             )
             if st.session_state.get("fare_notice"):
                 st.info(st.session_state.fare_notice)
+            if st.session_state.get("last_point_award"):
+                render_point_award(st.session_state.last_point_award)
+
+    render_leaderboard(point_store.leaderboard())
 
     current_month = datetime.now(SEOUL_TIMEZONE).strftime("%Y-%m")
     months = store.available_months()

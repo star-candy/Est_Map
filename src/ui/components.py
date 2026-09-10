@@ -6,6 +6,7 @@ import streamlit as st
 from src.domain import BikeRecommendation, Restaurant, RouteComparison, RouteMode
 from src.reporting.accounting import TripAccounting
 from src.reporting.monthly import MonthlySummary
+from src.rewards.points import LeaderboardEntry, PointAward
 
 
 def monthly_savings_delta(summary: MonthlySummary, previous_summary: MonthlySummary | None) -> int:
@@ -18,6 +19,38 @@ def render_data_badge() -> None:
         "서울 공공데이터 파일 사용 · 일반·맞춤 경로는 OSM 보행망을 사용합니다. "
         "열선은 도로명이 확인된 구간만 표시합니다."
     )
+
+
+def render_point_summary(total_points: int, attendance_claimed: bool) -> None:
+    with st.container(border=True):
+        points_column, attendance_column = st.columns(2)
+        points_column.metric("내 포인트", f"{total_points:,} P")
+        if attendance_claimed:
+            attendance_column.success("오늘 출석 완료 · +50 P")
+        else:
+            attendance_column.caption("오늘 출석체크로 50 P를 받을 수 있어요.")
+
+
+def render_point_award(award: PointAward) -> None:
+    st.success(
+        f"걷기 포인트 +{award.points:,} P · 현재 {award.total_points:,} P "
+        f"(거리 {award.distance_points} P + 탄소 {award.carbon_points} P)"
+    )
+
+
+def render_leaderboard(entries: tuple[LeaderboardEntry, ...]) -> None:
+    st.subheader("포인트 비교 · MVP")
+    rows = [
+        {
+            "순위": entry.rank,
+            "사용자": f"{entry.name} (나)" if entry.is_current_user else entry.name,
+            "포인트": f"{entry.points:,} P",
+            "데이터": "현재 로컬 값" if entry.is_current_user else "데모 값",
+        }
+        for entry in entries
+    ]
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    st.caption("다른 사용자의 이름과 포인트는 MVP 화면용 고정 샘플이며 실제 사용자가 아닙니다.")
 
 
 def render_responsible_use_notice() -> None:
@@ -150,28 +183,6 @@ def render_restaurants(restaurants: tuple[Restaurant, ...], errors: tuple[str, .
                 st.link_button("지도에서 보기", restaurant.map_url)
     if errors:
         st.warning(" ".join(errors))
-
-
-def _close_restaurant_coupon() -> None:
-    st.session_state.restaurant_coupon_open = False
-
-
-@st.dialog("🎁 경로 주변 맛집 쿠폰", on_dismiss=_close_restaurant_coupon)
-def render_restaurant_coupon_offer(restaurants: tuple[Restaurant, ...]) -> None:
-    """맛집 검색 직후 제휴 쿠폰 기능을 안내하는 대화상자를 표시한다."""
-    st.success("맞춤 경로 주변 맛집을 위한 쿠폰 혜택을 확인해 보세요.")
-    st.markdown("**쿠폰 대상 추천 맛집**")
-    for restaurant in restaurants[:3]:
-        st.write(f"• {restaurant.name}")
-    if len(restaurants) > 3:
-        st.caption(f"외 {len(restaurants) - 3}곳의 추천 맛집")
-    st.info(
-        "현재는 제휴 연동 전 MVP 안내 화면입니다. 실제 할인율·사용 조건·발급 쿠폰은 "
-        "표시하지 않으며, 매장이나 쿠폰 공급자와의 제휴가 연결된 뒤 제공됩니다."
-    )
-    if st.button("확인", type="primary", width="stretch", key="close_restaurant_coupon"):
-        _close_restaurant_coupon()
-        st.rerun(scope="app")
 
 
 def render_completion_success(accounting: TripAccounting, taxi_replaced: bool) -> None:
