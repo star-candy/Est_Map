@@ -1,4 +1,4 @@
-"""서울 쾌적 경로 앱의 중앙 설정."""
+"""피해가!(街) 앱의 중앙 설정."""
 
 import os
 from dataclasses import dataclass
@@ -10,7 +10,7 @@ load_dotenv()
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    app_title: str = "서울 쾌적 경로"
+    app_title: str = "피해가!(街)"
     app_icon: str = "🗺️"
     default_latitude: float = 37.5665
     default_longitude: float = 126.9780

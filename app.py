@@ -1,4 +1,4 @@
-"""서울 쾌적 경로 Streamlit 애플리케이션 진입점."""
+"""피해가!(街) Streamlit 애플리케이션 진입점."""
 
 from datetime import datetime
 from pathlib import Path
@@ -46,6 +46,7 @@ from src.ui.components import (
     render_restaurants,
     render_results,
 )
+from src.ui.responsive import inject_responsive_styles, render_main_navigation
 
 SEOUL_TIMEZONE = ZoneInfo("Asia/Seoul")
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -164,68 +165,50 @@ def _coordinate_inputs(prefix: str, default: Coordinates) -> Coordinates:
     return Coordinates(latitude=latitude, longitude=longitude)
 
 
-def main() -> None:
-    st.set_page_config(
-        page_title=SETTINGS.app_title,
-        page_icon=SETTINGS.app_icon,
-        layout="wide",
-        initial_sidebar_state="collapsed",
-    )
-    st.markdown(
-        """
-        <style>
-        div[data-testid="stToast"] {
-            width: min(420px, calc(100vw - 2rem));
-            padding: 0.25rem;
-        }
-        div[data-testid="stToast"] [data-testid="stMarkdownContainer"] p {
-            font-size: 1.05rem;
-            line-height: 1.5;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.title(f"{SETTINGS.app_icon} {SETTINGS.app_title}")
-    st.caption("서울의 일반 최단 보행 경로와 계절·안심 맞춤 경로를 비교하는 MVP입니다.")
-    render_responsible_use_notice()
-    render_data_badge()
+def _reset_search_state() -> None:
+    st.session_state.trip_id = uuid4().hex
+    st.session_state.trip_recorded = False
+    st.session_state.last_accounting = None
+    st.session_state.last_taxi_replaced = False
+    st.session_state.fare_notice = None
+    st.session_state.restaurants = ()
+    st.session_state.restaurant_errors = ()
+    st.session_state.navigation_active = False
+    st.session_state.navigation_audio = None
+    st.session_state.last_point_award = None
 
-    store = MonthlyReportStore(PROJECT_ROOT / SETTINGS.local_report_db_path)
-    point_store = PointStore(PROJECT_ROOT / SETTINGS.local_report_db_path)
-    now = datetime.now(SEOUL_TIMEZONE)
-    attendance_claimed = point_store.attendance_claimed(now)
-    if not attendance_claimed and st.button("오늘 출석체크 · 50 P 받기", type="primary"):
-        attendance_award = point_store.claim_attendance(now)
-        if attendance_award.awarded:
-            st.toast("출석체크 완료! 50포인트를 받았어요.", icon="🎁")
-        attendance_claimed = True
-    render_point_summary(point_store.total_points(), attendance_claimed)
 
-    with st.form("route_search"):
-        direct_coordinates = False
-        origin_coordinates = destination_coordinates = None
-        origin_column, destination_column = st.columns(2)
-        origin = origin_column.text_input("출발지", value="서울역", placeholder="서울 내 주소")
-        destination = destination_column.text_input(
-            "도착지", value="광화문", placeholder="서울 내 주소"
+def _show_restaurant_coupon_toasts(restaurants) -> None:
+    for restaurant in restaurants:
+        st.toast(
+            f"맛집 혜택 후보 · {restaurant.name}\n\n현재는 제휴 전 MVP 안내입니다.",
+            icon="🎁",
+            duration="infinite",
         )
-        direct_coordinates = st.checkbox("주소 대신 좌표 직접 입력")
-        if direct_coordinates:
-            origin_coordinates = _coordinate_inputs("출발지", SAMPLE_PLACES["서울역"])
-            destination_coordinates = _coordinate_inputs("도착지", SAMPLE_PLACES["광화문"])
 
-        mode = st.radio(
-            "경로 모드",
-            options=list(RouteMode),
-            format_func=lambda item: item.value,
-            horizontal=True,
-        )
-        submitted = st.form_submit_button("경로 검색", type="primary", width="stretch")
 
-    render_mode_help(mode)
-    if "route_comparison" not in st.session_state:
-        st.session_state.route_comparison = None
+def _render_map_page() -> None:
+    comparison = st.session_state.get("route_comparison")
+    with st.expander("🔎 출발지·도착지와 경로 모드", expanded=comparison is None):
+        with st.form("route_search"):
+            origin_column, destination_column = st.columns(2)
+            origin = origin_column.text_input("출발지", value="서울역", placeholder="서울 내 주소")
+            destination = destination_column.text_input(
+                "도착지", value="광화문", placeholder="서울 내 주소"
+            )
+            direct_coordinates = st.checkbox("주소 대신 좌표 직접 입력")
+            origin_coordinates = destination_coordinates = None
+            if direct_coordinates:
+                origin_coordinates = _coordinate_inputs("출발지", SAMPLE_PLACES["서울역"])
+                destination_coordinates = _coordinate_inputs("도착지", SAMPLE_PLACES["광화문"])
+            mode = st.radio(
+                "경로 모드",
+                options=list(RouteMode),
+                format_func=lambda item: item.value,
+                horizontal=True,
+            )
+            submitted = st.form_submit_button("경로 검색", type="primary", width="stretch")
+        render_mode_help(mode)
 
     request = RouteRequest(
         origin=origin,
@@ -246,74 +229,29 @@ def main() -> None:
             with st.spinner("보행 경로를 찾고 있습니다..."):
                 try:
                     st.session_state.route_comparison = RoutingService().find_routes(request)
-                    st.session_state.trip_id = uuid4().hex
-                    st.session_state.trip_recorded = False
-                    st.session_state.last_accounting = None
-                    st.session_state.last_taxi_replaced = False
-                    st.session_state.fare_notice = None
-                    st.session_state.gemini_briefing = None
-                    st.session_state.restaurants = ()
-                    st.session_state.restaurant_errors = ()
-                    st.session_state.navigation_active = False
-                    st.session_state.navigation_audio = None
-                    st.session_state.last_point_award = None
+                    _reset_search_state()
+                    comparison = st.session_state.route_comparison
                 except RouteServiceError as exc:
                     st.session_state.route_comparison = None
+                    comparison = None
                     st.error(str(exc))
                 except Exception:
                     st.session_state.route_comparison = None
+                    comparison = None
                     st.error(
                         "예상하지 못한 오류로 경로를 만들지 못했습니다. 잠시 후 다시 "
                         "시도하거나 좌표 직접 입력을 사용해 주세요."
                     )
 
-    comparison = st.session_state.route_comparison
     restaurants = st.session_state.get("restaurants", ())
-    restaurant_errors = st.session_state.get("restaurant_errors", ())
-    if comparison is not None:
-        providers = []
-        if SETTINGS.tmap_app_key:
-            providers.append(
-                TmapRestaurantProvider(
-                    SETTINGS.tmap_app_key, SETTINGS.external_request_timeout_seconds
-                )
-            )
-        if SETTINGS.google_map_api_key:
-            providers.append(
-                GoogleRestaurantProvider(
-                    SETTINGS.google_map_api_key, SETTINGS.external_request_timeout_seconds
-                )
-            )
-        if st.button("🍽️ 맞춤 경로 주변 맛집 찾기", disabled=not providers):
-            with st.spinner("경로 주변 음식점을 찾고 있습니다..."):
-                restaurants, restaurant_errors = find_route_restaurants(
-                    comparison.optimized,
-                    tuple(providers),
-                    SETTINGS.restaurant_search_radius_m,
-                    SETTINGS.restaurant_max_results,
-                )
-                st.session_state.restaurants = restaurants
-                st.session_state.restaurant_errors = restaurant_errors
-                for restaurant in restaurants:
-                    st.toast(
-                        f"맛집 혜택 후보 · {restaurant.name}\n\n"
-                        "현재는 제휴 전 MVP 안내입니다.",
-                        icon="🎁",
-                        duration="infinite",
-                    )
-        if not providers:
-            st.caption("TMAP 또는 Google Places API 키가 없어 음식점 검색을 사용할 수 없습니다.")
-    st.subheader("지도")
     st_folium(
         create_route_map(SETTINGS, comparison, restaurants),
-        height=SETTINGS.map_height,
+        height=680,
         use_container_width=True,
         returned_objects=[],
+        key="route_map",
     )
     render_results(comparison)
-    if comparison is not None:
-        _render_navigation(comparison)
-    render_restaurants(restaurants, restaurant_errors)
     bike_recommendation = None
     if comparison is not None:
         bike_recommendation = recommend_bike_trip(
@@ -323,9 +261,60 @@ def main() -> None:
             StaticSeoulBikeStationProvider(),
         )
     render_bike_recommendation(bike_recommendation)
+    render_data_badge()
+    render_responsible_use_notice()
 
-    if comparison is not None:
-        st.subheader("이동 완료")
+
+def _render_nearby_page(comparison) -> None:
+    st.subheader("경로 주변")
+    restaurants = st.session_state.get("restaurants", ())
+    restaurant_errors = st.session_state.get("restaurant_errors", ())
+    if comparison is None:
+        st.info("지도 메뉴에서 경로를 먼저 검색해 주세요.")
+        render_restaurants((), ())
+        return
+
+    providers = []
+    if SETTINGS.tmap_app_key:
+        providers.append(
+            TmapRestaurantProvider(SETTINGS.tmap_app_key, SETTINGS.external_request_timeout_seconds)
+        )
+    if SETTINGS.google_map_api_key:
+        providers.append(
+            GoogleRestaurantProvider(
+                SETTINGS.google_map_api_key, SETTINGS.external_request_timeout_seconds
+            )
+        )
+    if st.button("🍽️ 맞춤 경로 주변 맛집 찾기", disabled=not providers, width="stretch"):
+        with st.spinner("경로 주변 음식점을 찾고 있습니다..."):
+            restaurants, restaurant_errors = find_route_restaurants(
+                comparison.optimized,
+                tuple(providers),
+                SETTINGS.restaurant_search_radius_m,
+                SETTINGS.restaurant_max_results,
+            )
+            st.session_state.restaurants = restaurants
+            st.session_state.restaurant_errors = restaurant_errors
+            _show_restaurant_coupon_toasts(restaurants)
+    if not providers:
+        st.caption("TMAP 또는 Google Places API 키가 없어 음식점 검색을 사용할 수 없습니다.")
+    render_restaurants(restaurants, restaurant_errors)
+
+
+def _render_trip_page(store: MonthlyReportStore, point_store: PointStore, comparison) -> None:
+    st.subheader("이동 기록")
+    now = datetime.now(SEOUL_TIMEZONE)
+    attendance_claimed = point_store.attendance_claimed(now)
+    if not attendance_claimed and st.button("오늘 출석체크 · 50 P 받기", type="primary"):
+        attendance_award = point_store.claim_attendance(now)
+        if attendance_award.awarded:
+            st.toast("출석체크 완료! 50포인트를 받았어요.", icon="🎁")
+        attendance_claimed = True
+    render_point_summary(point_store.total_points(), attendance_claimed)
+
+    if comparison is None:
+        st.info("지도 메뉴에서 경로를 검색한 뒤 이동을 기록할 수 있습니다.")
+    else:
         route_kind = st.radio(
             "실제로 이동한 경로를 확인해 주세요.",
             ("일반 최단 경로", f"{comparison.mode.value} 맞춤 경로"),
@@ -351,29 +340,26 @@ def main() -> None:
             accounting = calculate_trip_accounting(
                 selected_route.distance_m, taxi_replaced, taxi_fare_krw=taxi_fare
             )
-            completed_at = datetime.now(SEOUL_TIMEZONE)
             inserted = store.record_trip(
                 st.session_state.trip_id,
                 route_kind,
                 accounting,
-                completed_at,
+                datetime.now(SEOUL_TIMEZONE),
             )
             if inserted:
-                point_award = point_store.award_walking_trip(
+                award = point_store.award_walking_trip(
                     st.session_state.trip_id,
                     accounting.distance_m,
                     accounting.carbon_saved_g,
-                    completed_at,
+                    datetime.now(SEOUL_TIMEZONE),
                 )
                 st.session_state.trip_recorded = True
                 st.session_state.last_accounting = accounting
                 st.session_state.last_taxi_replaced = taxi_replaced
                 st.session_state.fare_notice = fare_notice
-                st.session_state.last_point_award = point_award
+                st.session_state.last_point_award = award
                 st.toast(
-                    environmental_encouragement(
-                        accounting.distance_m, accounting.carbon_saved_g
-                    ),
+                    environmental_encouragement(accounting.distance_m, accounting.carbon_saved_g),
                     icon="🐧",
                     duration="infinite",
                 )
@@ -382,63 +368,89 @@ def main() -> None:
                 st.info("이미 기록된 이동입니다. 중복으로 집계하지 않았습니다.")
         if st.session_state.get("trip_recorded") and st.session_state.get("last_accounting"):
             render_completion_success(
-                st.session_state.last_accounting,
-                st.session_state.last_taxi_replaced,
+                st.session_state.last_accounting, st.session_state.last_taxi_replaced
             )
             if st.session_state.get("fare_notice"):
                 st.info(st.session_state.fare_notice)
             if st.session_state.get("last_point_award"):
                 render_point_award(st.session_state.last_point_award)
-
     render_leaderboard(point_store.leaderboard())
 
+
+def _render_report_page(store: MonthlyReportStore) -> None:
     current_month = datetime.now(SEOUL_TIMEZONE).strftime("%Y-%m")
     months = store.available_months()
     report_months = (current_month,) + tuple(month for month in months if month != current_month)
     selected_month = st.selectbox("리포트 월", report_months)
     summary = store.monthly_summary(selected_month)
     previous_summary = store.previous_month_summary(selected_month)
-    template_briefing = TemplateBriefingProvider().generate(summary)
-    render_monthly_report(summary, template_briefing, previous_summary)
-
-    if SETTINGS.gemini_api_key:
-        st.subheader("월간 이동 코치")
-        st.caption("월간 통계를 바탕으로 비교, 패턴과 다음 이동 목표를 대화로 확인하세요.")
-        histories = st.session_state.setdefault("monthly_chat_histories", {})
-        history = histories.setdefault(selected_month, [])
-        for turn in history:
-            with st.chat_message(turn["role"]):
-                st.markdown(turn["content"])
-        question = st.chat_input("예: 지난달과 비교해서 무엇이 달라졌나요?")
-        if question:
-            with st.chat_message("user"):
-                st.markdown(question)
-            try:
-                provider = MonthlyReportChatbot(
-                    SETTINGS.gemini_api_key,
-                    SETTINGS.gemini_model,
-                    SETTINGS.external_request_timeout_seconds,
-                )
-                with st.spinner("월간 이동 코치가 답변을 준비하고 있습니다..."):
-                    answer = provider.reply(summary, previous_summary, history, question)
-                history.extend(
-                    (
-                        {"role": "user", "content": question},
-                        {"role": "assistant", "content": answer},
-                    )
-                )
-                with st.chat_message("assistant"):
-                    st.markdown(answer)
-            except BriefingError as exc:
-                st.warning(
-                    f"{exc} 잠시 후 다시 질문해 주세요. 기본 템플릿 리포트는 계속 "
-                    "사용할 수 있습니다."
-                )
-    else:
+    render_monthly_report(
+        summary, TemplateBriefingProvider().generate(summary), previous_summary
+    )
+    if not SETTINGS.gemini_api_key:
         st.caption(
             "GEMINI_API_KEY가 없어 계산값 기반 기본 템플릿을 사용합니다. "
             "키를 설정하면 월간 통계와 대화하는 이동 코치가 활성화됩니다."
         )
+        return
+
+    st.subheader("월간 이동 코치")
+    histories = st.session_state.setdefault("monthly_chat_histories", {})
+    history = histories.setdefault(selected_month, [])
+    for turn in history:
+        with st.chat_message(turn["role"]):
+            st.markdown(turn["content"])
+    question = st.chat_input("예: 지난달과 비교해서 무엇이 달라졌나요?")
+    if question:
+        with st.chat_message("user"):
+            st.markdown(question)
+        try:
+            provider = MonthlyReportChatbot(
+                SETTINGS.gemini_api_key,
+                SETTINGS.gemini_model,
+                SETTINGS.external_request_timeout_seconds,
+            )
+            with st.spinner("월간 이동 코치가 답변을 준비하고 있습니다..."):
+                answer = provider.reply(summary, previous_summary, history, question)
+            history.extend(
+                ({"role": "user", "content": question}, {"role": "assistant", "content": answer})
+            )
+            with st.chat_message("assistant"):
+                st.markdown(answer)
+        except BriefingError as exc:
+            st.warning(f"{exc} 기본 월간 리포트는 계속 사용할 수 있습니다.")
+
+
+def main() -> None:
+    st.set_page_config(
+        page_title=SETTINGS.app_title,
+        page_icon=SETTINGS.app_icon,
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
+    inject_responsive_styles()
+    st.title(f"{SETTINGS.app_icon} {SETTINGS.app_title}")
+    st.caption("서울의 일반 최단 보행 경로와 계절·안심 맞춤 경로를 비교합니다.")
+    category = render_main_navigation()
+
+    st.session_state.setdefault("route_comparison", None)
+    comparison = st.session_state.route_comparison
+    store = MonthlyReportStore(PROJECT_ROOT / SETTINGS.local_report_db_path)
+    point_store = PointStore(PROJECT_ROOT / SETTINGS.local_report_db_path)
+
+    if category == "지도":
+        _render_map_page()
+    elif category == "안내":
+        if comparison is None:
+            st.info("지도 메뉴에서 경로를 먼저 검색해 주세요.")
+        else:
+            _render_navigation(comparison)
+    elif category == "주변":
+        _render_nearby_page(comparison)
+    elif category == "이동":
+        _render_trip_page(store, point_store, comparison)
+    else:
+        _render_report_page(store)
 
 
 if __name__ == "__main__":

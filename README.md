@@ -1,4 +1,4 @@
-# 서울 쾌적 경로 MVP
+# 피해가!(街) MVP
 
 경로가 생성되는 전체 과정과 강화학습의 상태·행동·보상·fallback은
 [`docs/route-generation.md`](docs/route-generation.md)에서 설명합니다.

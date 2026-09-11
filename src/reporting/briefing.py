@@ -81,7 +81,7 @@ class MonthlyReportChatbot:
             statistics = json.dumps(self._statistics(summary, previous), ensure_ascii=False)
             system = SystemMessage(
                 content=(
-                    "당신은 서울 쾌적 경로 앱의 월간 이동 코치입니다. 제공된 구조화 통계와 "
+                    "당신은 피해가!(街) 앱의 월간 이동 코치입니다. 제공된 구조화 통계와 "
                     "대화 내용에 근거해 사용자의 질문에 자연스러운 한국어로 답하세요. "
                     "리포트를 그대로 반복하지 말고 비교, 패턴, 다음 행동을 질문에 맞게 "
                     "설명하세요. 통계에 없는 이동 원인·건강 효과·안전성은 추측하지 마세요. "
