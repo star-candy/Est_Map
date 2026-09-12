@@ -11,7 +11,7 @@ load_dotenv()
 @dataclass(frozen=True, slots=True)
 class Settings:
     app_title: str = "피해가!(街)"
-    app_icon: str = "🗺️"
+    app_icon: str = "🌿"
     default_latitude: float = 37.5665
     default_longitude: float = 126.9780
     default_zoom: int = 12

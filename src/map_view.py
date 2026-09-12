@@ -238,4 +238,29 @@ def create_navigation_map(
             "테스트: 지도를 클릭해 현재 위치 이동</div>"
         )
     )
+    map_name = map_view.get_name()
+    map_view.get_root().script.add_child(
+        folium.Element(
+            f"""
+            (function attachPihagaMapClick(attempt) {{
+              var navigationMap = window['{map_name}'];
+              if (!navigationMap) {{
+                if (attempt < 40) {{
+                  window.setTimeout(function() {{
+                    attachPihagaMapClick(attempt + 1);
+                  }}, 50);
+                }}
+                return;
+              }}
+              navigationMap.on('click', function(event) {{
+                window.parent.postMessage({{
+                  type: 'pihaga-map-click',
+                  latitude: event.latlng.lat,
+                  longitude: event.latlng.lng
+                }}, '*');
+              }});
+            }})(0);
+            """
+        )
+    )
     return map_view

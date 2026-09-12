@@ -1,5 +1,6 @@
 """피해가!(街) Streamlit 애플리케이션 진입점."""
 
+import base64
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -46,6 +47,14 @@ from src.ui.components import (
     render_restaurants,
     render_results,
 )
+from src.ui.html_frontend import inject_html_host_styles, render_html_frontend
+from src.ui.mobile_cards import (
+    render_brand_header,
+    render_navigation_deck,
+    render_page_intro,
+    render_route_deck,
+    render_trip_deck,
+)
 from src.ui.responsive import inject_responsive_styles, render_main_navigation
 
 SEOUL_TIMEZONE = ZoneInfo("Asia/Seoul")
@@ -53,7 +62,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 
 
 def _render_navigation(comparison) -> None:
-    st.subheader("경로 안내")
+    render_page_intro("🧭", "실시간 경로 안내", "선택한 경로를 따라 다음 이동을 확인하세요.")
+    render_navigation_deck(comparison)
+    render_route_deck(comparison)
     if not st.session_state.get("navigation_active", False):
         selected = st.radio(
             "안내할 경로를 선택하세요.",
@@ -173,6 +184,8 @@ def _reset_search_state() -> None:
     st.session_state.fare_notice = None
     st.session_state.restaurants = ()
     st.session_state.restaurant_errors = ()
+    st.session_state.html_show_coupons = False
+    st.session_state.html_coupon_event_id = None
     st.session_state.navigation_active = False
     st.session_state.navigation_audio = None
     st.session_state.last_point_award = None
@@ -266,7 +279,7 @@ def _render_map_page() -> None:
 
 
 def _render_nearby_page(comparison) -> None:
-    st.subheader("경로 주변")
+    render_page_intro("🍽️", "도보 동선 맞춤 스팟", "맞춤 경로에 고르게 분포한 음식점을 찾습니다.")
     restaurants = st.session_state.get("restaurants", ())
     restaurant_errors = st.session_state.get("restaurant_errors", ())
     if comparison is None:
@@ -302,9 +315,10 @@ def _render_nearby_page(comparison) -> None:
 
 
 def _render_trip_page(store: MonthlyReportStore, point_store: PointStore, comparison) -> None:
-    st.subheader("이동 기록")
+    render_page_intro("✅", "이동 기록", "완료한 걷기를 로컬 기록과 포인트에 반영합니다.")
     now = datetime.now(SEOUL_TIMEZONE)
     attendance_claimed = point_store.attendance_claimed(now)
+    render_trip_deck(comparison, point_store.total_points())
     if not attendance_claimed and st.button("오늘 출석체크 · 50 P 받기", type="primary"):
         attendance_award = point_store.claim_attendance(now)
         if attendance_award.awarded:
@@ -378,6 +392,7 @@ def _render_trip_page(store: MonthlyReportStore, point_store: PointStore, compar
 
 
 def _render_report_page(store: MonthlyReportStore) -> None:
+    render_page_intro("📊", "월간 이동 리포트", "걷기와 환경 기여를 월별로 확인하세요.")
     current_month = datetime.now(SEOUL_TIMEZONE).strftime("%Y-%m")
     months = store.available_months()
     report_months = (current_month,) + tuple(month for month in months if month != current_month)
@@ -421,7 +436,358 @@ def _render_report_page(store: MonthlyReportStore) -> None:
             st.warning(f"{exc} 기본 월간 리포트는 계속 사용할 수 있습니다.")
 
 
-def main() -> None:
+def _route_payload(comparison):
+    if comparison is None:
+        return None
+    return {
+        "mode": comparison.mode.value,
+        "method": comparison.method,
+        "explanation": comparison.explanation,
+        "fallback_reason": comparison.fallback_reason,
+        "model_version": comparison.model_version,
+        "baseline": {
+            "distance": f"{comparison.baseline.distance_m / 1000:.2f}",
+            "duration": f"{comparison.baseline.duration_min:.0f}",
+            "comfort": f"{comparison.baseline.comfort_score:.1f}",
+        },
+        "optimized": {
+            "distance": f"{comparison.optimized.distance_m / 1000:.2f}",
+            "duration": f"{comparison.optimized.duration_min:.0f}",
+            "comfort": f"{comparison.optimized.comfort_score:.1f}",
+        },
+    }
+
+
+def _navigation_payload(comparison):
+    if comparison is None or not st.session_state.get("navigation_active", False):
+        return {"active": False}
+    route = (
+        comparison.baseline
+        if st.session_state.get("navigation_route_kind") == "baseline"
+        else comparison.optimized
+    )
+    current = st.session_state.get("navigation_position", route.path[0])
+    guidance = build_guidance(route, current)
+    return {
+        "active": True,
+        "instruction": guidance.instruction,
+        "action_distance": f"{guidance.distance_to_action_m:.0f}",
+        "remaining": f"{guidance.remaining_distance_m:.0f}",
+        "progress": guidance.route_progress,
+        "arrived": guidance.arrived,
+        "off_route": guidance.off_route,
+    }
+
+
+def _build_html_payload(store: MonthlyReportStore, point_store: PointStore) -> dict:
+    comparison = st.session_state.get("route_comparison")
+    restaurants = st.session_state.get("restaurants", ())
+    current_month = datetime.now(SEOUL_TIMEZONE).strftime("%Y-%m")
+    report_months = (current_month,) + tuple(
+        month for month in store.available_months() if month != current_month
+    )
+    selected_month = st.session_state.get("html_report_month", current_month)
+    if selected_month not in report_months:
+        selected_month = current_month
+    summary = store.monthly_summary(selected_month)
+    previous = store.previous_month_summary(selected_month)
+    bike = None
+    if comparison is not None:
+        recommendation = recommend_bike_trip(
+            comparison.baseline,
+            comparison.origin,
+            comparison.destination,
+            StaticSeoulBikeStationProvider(),
+        )
+        bike = {
+            "eligible": recommendation.eligible,
+            "recommended": recommendation.recommended,
+            "reason": recommendation.reason,
+            "pickup": recommendation.pickup_station.name
+            if recommendation.pickup_station
+            else None,
+            "dropoff": recommendation.dropoff_station.name
+            if recommendation.dropoff_station
+            else None,
+            "duration": f"{recommendation.estimated_duration_min:.0f}",
+        }
+    histories = st.session_state.setdefault("monthly_chat_histories", {})
+    history = histories.setdefault(selected_month, [])
+    map_html = create_route_map(SETTINGS, comparison, restaurants).get_root().render()
+    navigation_map_html = map_html
+    if comparison is not None and st.session_state.get("navigation_active", False):
+        route = (
+            comparison.baseline
+            if st.session_state.get("navigation_route_kind") == "baseline"
+            else comparison.optimized
+        )
+        current = st.session_state.get("navigation_position", route.path[0])
+        guidance = build_guidance(route, current)
+        navigation_map_html = create_navigation_map(
+            SETTINGS, route, current, guidance.next_position
+        ).get_root().render()
+    audio = st.session_state.get("navigation_audio")
+    return {
+        "ack_event_id": st.session_state.get("last_html_event_id"),
+        "inputs": st.session_state.get(
+            "html_route_inputs", {"origin": "서울역", "destination": "광화문", "mode": "여름"}
+        ),
+        "active_page": st.session_state.get("html_active_page", "map"),
+        "route": _route_payload(comparison),
+        "map_html": map_html,
+        "navigation_map_html": navigation_map_html,
+        "navigation": _navigation_payload(comparison),
+        "bike": bike,
+        "restaurants": [
+            {
+                "name": item.name,
+                "address": item.address,
+                "provider": item.provider,
+                "rating": item.rating,
+                "reviews": item.user_rating_count,
+                "url": item.map_url,
+            }
+            for item in restaurants
+        ],
+        "trip": {
+            "points": point_store.total_points(),
+            "recorded": st.session_state.get("trip_recorded", False),
+            "attendance_claimed": point_store.attendance_claimed(
+                datetime.now(SEOUL_TIMEZONE)
+            ),
+        },
+        "leaderboard": [
+            {"rank": item.rank, "name": item.name, "points": item.points}
+            for item in point_store.leaderboard()
+        ],
+        "report": {
+            "month": selected_month,
+            "months": report_months,
+            "trips": summary.trip_count,
+            "distance": f"{summary.distance_m / 1000:.2f}",
+            "distance_delta": f"{(summary.distance_m - previous.distance_m) / 1000:+.2f}",
+            "carbon": f"{summary.carbon_saved_g / 1000:.2f}",
+            "savings": f"{summary.taxi_saved_krw:,}",
+            "briefing": TemplateBriefingProvider().generate(summary),
+            "history": history,
+        },
+        "audio": base64.b64encode(audio).decode("ascii") if audio else None,
+        "notice": st.session_state.get("html_notice"),
+        "show_coupons": st.session_state.get("html_show_coupons", False),
+        "coupon_event_id": st.session_state.get("html_coupon_event_id"),
+    }
+
+
+def _set_html_notice(text: str, kind: str = "info") -> None:
+    st.session_state.html_notice = {"id": uuid4().hex, "text": text, "type": kind}
+
+
+def _html_restaurant_providers():
+    providers = []
+    if SETTINGS.tmap_app_key:
+        providers.append(
+            TmapRestaurantProvider(SETTINGS.tmap_app_key, SETTINGS.external_request_timeout_seconds)
+        )
+    if SETTINGS.google_map_api_key:
+        providers.append(
+            GoogleRestaurantProvider(
+                SETTINGS.google_map_api_key, SETTINGS.external_request_timeout_seconds
+            )
+        )
+    return tuple(providers)
+
+
+def _synthesize_navigation_instruction(comparison) -> None:
+    if not SETTINGS.gemini_api_key:
+        return
+    route = (
+        comparison.baseline
+        if st.session_state.get("navigation_route_kind") == "baseline"
+        else comparison.optimized
+    )
+    current = st.session_state.get("navigation_position", route.path[0])
+    guidance = build_guidance(route, current)
+    try:
+        st.session_state.navigation_audio = GeminiSpeechProvider(
+            SETTINGS.gemini_api_key
+        ).synthesize(guidance.instruction)
+    except SpeechError as exc:
+        st.session_state.navigation_audio = None
+        _set_html_notice(str(exc), "error")
+
+
+def _handle_html_event(event: dict, store: MonthlyReportStore, point_store: PointStore) -> bool:
+    event_id = str(event.get("id", ""))
+    if not event_id or event_id == st.session_state.get("last_html_event_id"):
+        return False
+    st.session_state.last_html_event_id = event_id
+    event_page = str(event.get("page", ""))
+    if event_page in {"map", "navigation", "nearby", "trip", "report"}:
+        st.session_state.html_active_page = event_page
+    st.session_state.html_notice = None
+    st.session_state.html_show_coupons = False
+    action = event.get("action")
+    comparison = st.session_state.get("route_comparison")
+
+    if action == "search_route":
+        inputs = {
+            "origin": str(event.get("origin", "")).strip(),
+            "destination": str(event.get("destination", "")).strip(),
+            "mode": str(event.get("mode", "여름")),
+        }
+        st.session_state.html_route_inputs = inputs
+        try:
+            direct_coordinates = bool(event.get("direct_coordinates", False))
+            origin_coordinates = destination_coordinates = None
+            if direct_coordinates:
+                origin_coordinates = Coordinates(
+                    float(event["origin_latitude"]), float(event["origin_longitude"])
+                )
+                destination_coordinates = Coordinates(
+                    float(event["destination_latitude"]),
+                    float(event["destination_longitude"]),
+                )
+            request = RouteRequest(
+                origin=inputs["origin"],
+                destination=inputs["destination"],
+                mode=RouteMode(inputs["mode"]),
+                use_osm=True,
+                origin_coordinates=origin_coordinates,
+                destination_coordinates=destination_coordinates,
+                use_real_data=True,
+            )
+            errors = request.validate()
+            if errors:
+                raise RouteServiceError(" ".join(errors))
+            st.session_state.route_comparison = RoutingService().find_routes(request)
+            _reset_search_state()
+            _set_html_notice("일반 경로와 맞춤 경로를 찾았습니다.", "success")
+        except (RouteServiceError, ValueError) as exc:
+            st.session_state.route_comparison = None
+            _set_html_notice(str(exc), "error")
+        except Exception:
+            st.session_state.route_comparison = None
+            _set_html_notice(
+                "경로를 만들지 못했습니다. 주소를 확인하고 다시 시도해 주세요.", "error"
+            )
+    elif action == "search_restaurants":
+        if comparison is None:
+            _set_html_notice("지도에서 경로를 먼저 검색해 주세요.", "error")
+        else:
+            providers = _html_restaurant_providers()
+            if not providers:
+                _set_html_notice("TMAP 또는 Google Places API 키가 필요합니다.", "error")
+            else:
+                restaurants, errors = find_route_restaurants(
+                    comparison.optimized,
+                    providers,
+                    SETTINGS.restaurant_search_radius_m,
+                    SETTINGS.restaurant_max_results,
+                )
+                st.session_state.restaurants = restaurants
+                st.session_state.restaurant_errors = errors
+                st.session_state.html_show_coupons = bool(restaurants)
+                st.session_state.html_coupon_event_id = uuid4().hex if restaurants else None
+                if errors and not restaurants:
+                    _set_html_notice(" ".join(errors), "error")
+    elif action == "start_navigation" and comparison is not None:
+        st.session_state.navigation_active = True
+        st.session_state.navigation_route_kind = event.get("route_kind", "optimized")
+        route = (
+            comparison.baseline
+            if st.session_state.navigation_route_kind == "baseline"
+            else comparison.optimized
+        )
+        st.session_state.navigation_position = route.path[0]
+        _synthesize_navigation_instruction(comparison)
+    elif action == "stop_navigation":
+        st.session_state.navigation_active = False
+        st.session_state.navigation_audio = None
+    elif action == "update_location" and comparison is not None:
+        st.session_state.navigation_position = Coordinates(
+            float(event["latitude"]), float(event["longitude"])
+        )
+        _synthesize_navigation_instruction(comparison)
+    elif action == "location_error":
+        _set_html_notice("현재 위치를 가져오지 못했습니다. 브라우저 위치 권한을 확인해 주세요.")
+    elif action == "claim_attendance":
+        award = point_store.claim_attendance(datetime.now(SEOUL_TIMEZONE))
+        if award.awarded:
+            _set_html_notice("출석체크 완료! 50포인트를 받았습니다.", "success")
+        else:
+            _set_html_notice("오늘 출석 포인트는 이미 받았습니다.")
+    elif action == "complete_trip":
+        if comparison is None:
+            _set_html_notice("기록할 경로가 없습니다.", "error")
+        elif st.session_state.get("trip_recorded", False):
+            _set_html_notice("이미 기록된 이동입니다.")
+        else:
+            route_kind = str(event.get("route_kind", "optimized"))
+            route = comparison.baseline if route_kind == "baseline" else comparison.optimized
+            taxi_replaced = bool(event.get("taxi_replaced", False))
+            taxi_fare = None
+            if taxi_replaced and SETTINGS.tmap_app_key:
+                try:
+                    taxi_fare = TmapTaxiFareProvider(
+                        SETTINGS.tmap_app_key, SETTINGS.external_request_timeout_seconds
+                    ).estimate(comparison.origin, comparison.destination)
+                except TaxiFareError:
+                    taxi_fare = None
+            accounting = calculate_trip_accounting(
+                route.distance_m, taxi_replaced, taxi_fare_krw=taxi_fare
+            )
+            completed_at = datetime.now(SEOUL_TIMEZONE)
+            trip_id = st.session_state.setdefault("trip_id", uuid4().hex)
+            inserted = store.record_trip(trip_id, route_kind, accounting, completed_at)
+            if inserted:
+                point_store.award_walking_trip(
+                    trip_id, accounting.distance_m, accounting.carbon_saved_g, completed_at
+                )
+                st.session_state.trip_recorded = True
+                _set_html_notice(
+                    environmental_encouragement(
+                        accounting.distance_m, accounting.carbon_saved_g
+                    ),
+                    "success",
+                )
+            else:
+                st.session_state.trip_recorded = True
+                _set_html_notice("이미 기록된 이동입니다.")
+    elif action == "chat":
+        question = str(event.get("question", "")).strip()
+        current_month = st.session_state.get(
+            "html_report_month", datetime.now(SEOUL_TIMEZONE).strftime("%Y-%m")
+        )
+        histories = st.session_state.setdefault("monthly_chat_histories", {})
+        history = histories.setdefault(current_month, [])
+        if not SETTINGS.gemini_api_key:
+            _set_html_notice("GEMINI_API_KEY가 없어 AI 이동 코치를 사용할 수 없습니다.", "error")
+        elif question:
+            try:
+                answer = MonthlyReportChatbot(
+                    SETTINGS.gemini_api_key,
+                    SETTINGS.gemini_model,
+                    SETTINGS.external_request_timeout_seconds,
+                ).reply(
+                    store.monthly_summary(current_month),
+                    store.previous_month_summary(current_month),
+                    history,
+                    question,
+                )
+                history.extend(
+                    (
+                        {"role": "user", "content": question},
+                        {"role": "assistant", "content": answer},
+                    )
+                )
+            except BriefingError as exc:
+                _set_html_notice(str(exc), "error")
+    elif action == "select_report_month":
+        st.session_state.html_report_month = str(event.get("month", ""))
+    return True
+
+
+def _main_native() -> None:
     st.set_page_config(
         page_title=SETTINGS.app_title,
         page_icon=SETTINGS.app_icon,
@@ -429,9 +795,8 @@ def main() -> None:
         initial_sidebar_state="collapsed",
     )
     inject_responsive_styles()
-    st.title(f"{SETTINGS.app_icon} {SETTINGS.app_title}")
-    st.caption("서울의 일반 최단 보행 경로와 계절·안심 맞춤 경로를 비교합니다.")
     category = render_main_navigation()
+    render_brand_header(category)
 
     st.session_state.setdefault("route_comparison", None)
     comparison = st.session_state.route_comparison
@@ -451,6 +816,22 @@ def main() -> None:
         _render_trip_page(store, point_store, comparison)
     else:
         _render_report_page(store)
+
+
+def main() -> None:
+    st.set_page_config(
+        page_title=SETTINGS.app_title,
+        page_icon=SETTINGS.app_icon,
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
+    inject_html_host_styles()
+    store = MonthlyReportStore(PROJECT_ROOT / SETTINGS.local_report_db_path)
+    point_store = PointStore(PROJECT_ROOT / SETTINGS.local_report_db_path)
+    payload = _build_html_payload(store, point_store)
+    event = render_html_frontend(payload)
+    if event and _handle_html_event(event, store, point_store):
+        st.rerun()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,8 @@
 """현재 위치 기반 텍스트 경로 안내 테스트."""
 
+from config.settings import SETTINGS
 from src.domain import Coordinates, RoutePath
+from src.map_view import create_navigation_map
 from src.navigation import build_guidance, voice_announcement_key
 
 
@@ -76,3 +78,17 @@ def test_arrival_and_off_route_are_voice_events() -> None:
 
     assert voice_announcement_key(arrival) == "arrival"
     assert voice_announcement_key(off_route).startswith("off-route:")
+
+
+def test_navigation_map_relays_click_to_html_frontend() -> None:
+    start = Coordinates(37.5, 127.0)
+    destination = Coordinates(37.501, 127.0)
+    route = _route(start, destination)
+
+    html = create_navigation_map(SETTINGS, route, start, destination).get_root().render()
+
+    assert "pihaga-map-click" in html
+    assert "event.latlng.lat" in html
+    assert "event.latlng.lng" in html
+    assert "attachPihagaMapClick" in html
+    assert "window.setTimeout" in html

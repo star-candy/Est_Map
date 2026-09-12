@@ -7,6 +7,7 @@ from src.domain import BikeRecommendation, Restaurant, RouteComparison, RouteMod
 from src.reporting.accounting import TripAccounting
 from src.reporting.monthly import MonthlySummary
 from src.rewards.points import LeaderboardEntry, PointAward
+from src.ui.mobile_cards import render_report_deck, render_route_deck
 
 
 def monthly_savings_delta(summary: MonthlySummary, previous_summary: MonthlySummary | None) -> int:
@@ -82,31 +83,9 @@ def render_mode_help(mode: RouteMode) -> None:
 
 
 def render_results(comparison: RouteComparison | None) -> None:
-    st.subheader("경로 비교")
+    render_route_deck(comparison)
     if comparison is None:
-        with st.container(border=True):
-            st.markdown("#### 아직 검색 결과가 없습니다")
-            st.caption("출발지와 도착지를 선택한 뒤 경로 검색을 눌러 주세요.")
         return
-
-    table = pd.DataFrame(
-        {
-            "구분": ["일반 최단 경로", f"{comparison.mode.value} 맞춤 경로"],
-            "거리": [
-                f"{comparison.baseline.distance_m / 1000:.2f} km",
-                f"{comparison.optimized.distance_m / 1000:.2f} km",
-            ],
-            "예상 시간": [
-                f"{comparison.baseline.duration_min:.0f}분",
-                f"{comparison.optimized.duration_min:.0f}분",
-            ],
-            "쾌적 점수": [
-                f"{comparison.baseline.comfort_score:.1f}점",
-                f"{comparison.optimized.comfort_score:.1f}점",
-            ],
-        }
-    )
-    st.dataframe(table, hide_index=True, width="stretch")
     detour_column, method_column = st.columns(2)
     detour_column.metric("맞춤 경로 우회율", f"{comparison.detour_ratio:.1%}")
     method_column.metric("생성 방식", comparison.method)
@@ -202,15 +181,9 @@ def render_completion_success(accounting: TripAccounting, taxi_replaced: bool) -
 def render_monthly_report(
     summary: MonthlySummary, briefing: str, previous_summary: MonthlySummary | None = None
 ) -> None:
-    st.subheader("월간 이용 리포트")
-    distance_column, carbon_column, savings_column = st.columns(3)
-    distance_column.metric("총 걸은 거리", f"{summary.distance_m / 1_000:.2f} km")
-    carbon_column.metric("탄소 절감량", f"{summary.carbon_saved_g / 1_000:.2f} kgCO₂e")
+    previous = previous_summary or MonthlySummary("", 0, 0.0, 0.0, 0)
+    render_report_deck(summary, previous)
     savings_delta = monthly_savings_delta(summary, previous_summary)
-    savings_column.metric(
-        "추정 비용 절감액",
-        f"{summary.taxi_saved_krw:,}원",
-        delta=f"{savings_delta:+,}원 (전월 대비)",
-    )
     st.caption(f"{summary.month} · 완료 이동 {summary.trip_count}건")
+    st.caption(f"추정 비용 절감액은 전월보다 {savings_delta:+,}원입니다.")
     st.info(briefing)

@@ -14,6 +14,12 @@ Streamlit MVP입니다. OpenStreetMap 부분 그래프에서 tabular Q-learning 
 우선 사용하고, 적용할 수 없으면 weighted A*로 전환합니다. 전처리된 서울 공공데이터를
 보행 edge에 결합하며 사용자 화면에서는 합성 샘플 경로를 제공하지 않습니다.
 
+현재 화면은 Streamlit 기본 위젯을 직접 배치하는 방식이 아니라
+`src/ui/html_frontend/index.html`의 모바일 HTML/CSS/JavaScript 앱을 양방향 커스텀
+컴포넌트로 제공합니다. 검색·안내·맛집·이동 기록·AI 채팅 이벤트는 Python 브리지를
+거쳐 기존 경로 및 리포트 서비스로 전달되고, 계산 결과와 Folium 지도 HTML이 다시
+프런트엔드에 주입됩니다.
+
 > 안심 및 겨울 지표는 참고용이며 공식 안전 경로가 아닙니다. 첨부 자료에는 결빙 위험과
 > 열선 좌표·실시간 가동 상태가 없어 해당 정보를 임의로 생성하지 않습니다.
 
